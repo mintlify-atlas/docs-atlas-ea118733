@@ -1,0 +1,215 @@
+---
+title: Development Setup
+description: Set up your development environment for contributing to Crimsonland
+---
+
+This guide walks you through setting up a complete development environment for the Crimsonland project.
+
+## Prerequisites
+
+### Required Tools
+
+<Steps>
+  <Step title="Install uv">
+    Install [uv](https://docs.astral.sh/uv/getting-started/installation/), the fast Python package installer and resolver:
+    
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+  </Step>
+  
+  <Step title="Clone the Repository">
+    ```bash
+    gh repo clone banteg/crimson && cd crimson
+    ```
+    
+    Or using git directly:
+    
+    ```bash
+    git clone https://github.com/banteg/crimson.git && cd crimson
+    ```
+  </Step>
+  
+  <Step title="Install Dependencies">
+    uv automatically manages dependencies from `pyproject.toml`:
+    
+    ```bash
+    uv sync
+    ```
+    
+    This installs:
+    - Runtime dependencies (raylib, msgspec, construct, etc.)
+    - Development dependencies (pytest, ruff, ty, etc.)
+  </Step>
+</Steps>
+
+### Platform-Specific Notes
+
+<Tabs>
+  <Tab title="Linux (Wayland)">
+    Current PyPI raylib wheels are X11-oriented on x86_64, so you may need:
+    
+    ```bash
+    sudo apt install xwayland libx11-dev
+    ```
+    
+    See [electronstudio/raylib-python-cffi#199](https://github.com/electronstudio/raylib-python-cffi/pull/199) for details.
+  </Tab>
+  
+  <Tab title="Windows">
+    Some analysis tools (Frida, WinDbg, IDA) are Windows-specific. The main development workflow works cross-platform.
+  </Tab>
+</Tabs>
+
+## Development Tools
+
+The project uses several specialized tools. They're all installed via uv:
+
+### Core Development Tools
+
+| Tool | Purpose | Installed By |
+|------|---------|-------------|
+| **pytest** | Test runner with coverage | `dependency-groups.dev` |
+| **ruff** | Fast Python linter | Runtime (via CLI) |
+| **ty** | Type checker | `dependency-groups.dev` |
+| **ast-grep** (`sg`) | Structural code search | External (install separately) |
+| **prek** | Pre-commit hook manager | External (install separately) |
+| **import-linter** | Import contract enforcer | `dependency-groups.dev` |
+| **just** | Command runner | External (install separately) |
+
+### Install External Tools
+
+<Tabs>
+  <Tab title="ast-grep">
+    ```bash
+    cargo install ast-grep
+    # or
+    brew install ast-grep
+    ```
+  </Tab>
+  
+  <Tab title="prek (pre-commit hooks)">
+    ```bash
+    cargo install prek
+    ```
+    
+    Then install hooks:
+    ```bash
+    prek install -c prek.toml -t pre-commit -t pre-push
+    ```
+    
+    - `pre-commit` runs fast checks (ruff/import-linter/ty/docs/ast-grep)
+    - `pre-push` runs heavy checks (pytest/build/zig)
+  </Tab>
+  
+  <Tab title="just">
+    ```bash
+    cargo install just
+    # or
+    brew install just
+    ```
+  </Tab>
+</Tabs>
+
+## Runtime Configuration
+
+### Runtime Files Location
+
+By default, saves, config, logs, and replays live in your per-user data directory. To keep everything local to the checkout:
+
+```bash
+export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+```
+
+Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) to make it permanent.
+
+### Assets
+
+The rewrite can load assets from original PAQ archives. Point to them if needed:
+
+```bash
+uv run crimson --assets-dir path/to/game_dir
+```
+
+Extract PAQs for inspection:
+
+```bash
+uv run crimson extract path/to/game_dir artifacts/assets
+```
+
+## Verify Installation
+
+Run the full verification suite:
+
+```bash
+just check
+```
+
+This runs:
+- `ruff check .` - Linting
+- `lint-imports` - Import contract validation
+- `ty check src tests` - Type checking
+- `scripts/check_docs.py` - Documentation validation
+- `sg scan` - ast-grep code scanning
+- `sg test` - ast-grep rule tests
+- `pytest` - Full test suite
+- `just check-zig` - Zig build and tests (if applicable)
+
+<Note>
+The first run will download dependencies and may take a few minutes.
+</Note>
+
+## Quick Test Run
+
+Verify the game runs:
+
+```bash
+uv run crimson --no-intro
+```
+
+This should launch the game, skipping intro logos.
+
+## Editor Setup
+
+### Recommended VS Code Extensions
+
+- **Python** (ms-python.python)
+- **Ruff** (charliermarsh.ruff)
+- **ast-grep** (ast-grep.ast-grep-vscode)
+
+### Type Checking Integration
+
+The project uses `ty` (a fast type checker). Configure your editor to use it:
+
+```json
+{
+  "python.languageServer": "Pylance",
+  "python.analysis.typeCheckingMode": "basic"
+}
+```
+
+Run type checks manually:
+
+```bash
+uv run ty check src tests
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Workflow" icon="rotate" href="/contributing/workflow">
+    Learn the contribution workflow
+  </Card>
+  
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Run and write tests
+  </Card>
+  
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Understand the parity-first approach
+  </Card>
+  
+  <Card title="Development Tooling" icon="tools" href="/contributing/dev/tooling">
+    Explore analysis and utility scripts
+  </Card>
+</CardGroup>

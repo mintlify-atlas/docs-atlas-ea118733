@@ -1,0 +1,374 @@
+---
+title: Perks Module
+description: Perk runtime architecture with deterministic hook dispatch
+---
+
+The perks system provides 50+ gameplay-modifying perks with a clean three-layer architecture for maintainability and deterministic replay.
+
+## Architecture Goals
+
+<Check>
+  **Original fidelity** — Hook order and side effects match native flow
+</Check>
+<Check>
+  **Navigability** — One perk = one file with all its logic
+</Check>
+<Check>
+  **Deterministic auditability** — Stable RNG consumption and dispatch order
+</Check>
+
+## Three-Layer Design
+
+Perks are split into three concerns:
+
+<Steps>
+  <Step title="Metadata Layer">
+    Perk IDs, selection logic, availability checks
+    
+    Location: `src/crimson/perks/*.py`
+  </Step>
+  <Step title="Implementation Layer">
+    One module per perk with all its runtime logic
+    
+    Location: `src/crimson/perks/impl/*.py`
+  </Step>
+  <Step title="Runtime Layer">
+    Hook contracts, dispatch orchestration, canonical registry
+    
+    Location: `src/crimson/perks/runtime/*.py`
+  </Step>
+</Steps>
+
+## Package Structure
+
+```
+src/crimson/perks/
+  ├── ids.py                   # Perk ID enum
+  ├── helpers.py               # Perk state queries
+  ├── availability.py          # Offer gating logic
+  ├── selection.py             # Selection UI state
+  ├── state.py                 # Runtime state
+  ├── impl/                    # Perk implementations
+  │   ├── instant_winner.py
+  │   ├── final_revenge.py
+  │   ├── evil_eyes_effect.py
+  │   └── ...                  # 50+ perk files
+  └── runtime/                 # Dispatch system
+      ├── manifest.py          # Canonical registry
+      ├── hook_types.py        # Hook contracts
+      ├── apply.py             # Apply-time dispatcher
+      ├── effects.py           # Frame effects dispatcher
+      └── player_ticks.py      # Player tick dispatcher
+```
+
+## Perk Implementation
+
+Each perk exports a `HOOKS` declaration:
+
+```python src/crimson/perks/impl/instant_winner.py
+from crimson.perks import PerkId
+from crimson.perks.runtime.hook_types import PerkHooks
+from crimson.perks.runtime.apply_context import ApplyContext
+
+def apply_instant_winner(ctx: ApplyContext) -> None:
+    """Instant Winner: Win immediately."""
+    # Set win flag
+    ctx.state.instant_win = True
+
+# Export hooks
+HOOKS = PerkHooks(
+    perk_id=PerkId.INSTANT_WINNER,
+    apply_handler=apply_instant_winner,
+)
+```
+
+## Hook Types
+
+Defined in `src/crimson/perks/runtime/hook_types.py`:
+
+```python
+class PerkHooks(msgspec.Struct):
+    perk_id: PerkId
+    apply_handler: ApplyHandler | None = None
+    world_dt_step: WorldDtStep | None = None
+    player_tick_steps: list[PlayerTickStep] | None = None
+    effects_steps: list[EffectsStep] | None = None
+    player_death_hook: PlayerDeathHook | None = None
+```
+
+### Apply Handler
+
+Runs immediately when perk is picked:
+
+```python
+from crimson.perks.runtime.apply_context import ApplyContext
+
+def apply_bandage(ctx: ApplyContext) -> None:
+    """Bandage: Heal 1-50 HP."""
+    heal_amount = (ctx.rand() % 50) + 1
+    
+    for player in ctx.players:
+        if player.health > 0:
+            player.health = min(100, player.health + heal_amount)
+```
+
+### World Dt Step
+
+Transforms frame delta time (e.g., Reflex Boost):
+
+```python
+from crimson.perks.runtime.hook_types import WorldDtStep
+
+class ReflexBoostDtHook(WorldDtStep):
+    def apply(self, world: WorldState, dt: float) -> float:
+        # Check if any player has active Reflex Boost
+        reflex_timer = max(
+            player.reflex_boost_timer
+            for player in world.players
+        )
+        
+        if reflex_timer <= 0:
+            return dt
+        
+        # Scale down time (slow motion)
+        return dt * 0.3
+```
+
+### Effects Step
+
+Global per-frame effects:
+
+```python
+from crimson.perks.runtime.effects_context import EffectsContext
+
+def evil_eyes_effect(ctx: EffectsContext) -> None:
+    """Evil Eyes: Damage creatures near cursor."""
+    if not perk_active(ctx.players[0], PerkId.EVIL_EYES):
+        return
+    
+    aim_pos = Vec2(ctx.players[0].aim_x, ctx.players[0].aim_y)
+    
+    for creature in ctx.creatures.active_creatures():
+        dist = distance(creature.pos, aim_pos)
+        if dist < 100:
+            creature_apply_damage(
+                creature,
+                damage=2.0 * ctx.dt,
+                damage_type=DamageType.PERK,
+            )
+```
+
+### Player Tick Step
+
+Per-player tick hooks:
+
+```python
+from crimson.perks.runtime.player_tick_context import PlayerTickContext
+
+def angry_reloader_tick(ctx: PlayerTickContext) -> None:
+    """Angry Reloader: +25% speed while reloading."""
+    if not perk_active(ctx.player, PerkId.ANGRY_RELOADER):
+        return
+    
+    if ctx.player.weapon.reload_active:
+        # Speed boost already applied in movement code
+        pass
+```
+
+### Player Death Hook
+
+Triggered on player death:
+
+```python
+from crimson.perks.runtime.hook_types import PlayerDeathHook
+
+class FinalRevengeDeathHook(PlayerDeathHook):
+    def apply(self, world: WorldState, player: PlayerState) -> None:
+        """Final Revenge: Explode on death."""
+        if not perk_active(player, PerkId.FINAL_REVENGE):
+            return
+        
+        # Spawn explosion
+        spawn_explosion(
+            world.state,
+            pos=player.pos,
+            radius=200,
+            damage=100,
+        )
+```
+
+## Runtime Manifest
+
+The canonical registry in `src/crimson/perks/runtime/manifest.py`:
+
+```python src/crimson/perks/runtime/manifest.py
+from crimson.perks.impl import (
+    instant_winner,
+    final_revenge,
+    evil_eyes_effect,
+    # ... all perk modules
+)
+
+# Parity-critical dispatch order
+PERK_HOOKS_IN_ORDER: list[PerkHooks] = [
+    instant_winner.HOOKS,
+    final_revenge.HOOKS,
+    evil_eyes_effect.HOOKS,
+    # ... all perk hooks in native order
+]
+
+# Derived registries (preserve order)
+PERK_APPLY_HANDLERS: dict[PerkId, ApplyHandler] = {
+    hook.perk_id: hook.apply_handler
+    for hook in PERK_HOOKS_IN_ORDER
+    if hook.apply_handler is not None
+}
+
+WORLD_DT_STEPS: list[WorldDtStep] = [
+    hook.world_dt_step
+    for hook in PERK_HOOKS_IN_ORDER
+    if hook.world_dt_step is not None
+]
+
+PLAYER_DEATH_HOOKS: list[PlayerDeathHook] = [
+    hook.player_death_hook
+    for hook in PERK_HOOKS_IN_ORDER
+    if hook.player_death_hook is not None
+]
+```
+
+<Warning>
+  **Order matters!** Changing hook order affects RNG consumption and can break replay parity.
+</Warning>
+
+## Dispatch Integration
+
+### Apply-Time Dispatch
+
+```python src/crimson/perks/runtime/apply.py
+def perk_apply(
+    perk_id: PerkId,
+    state: GameplayState,
+    players: list[PlayerState],
+) -> None:
+    """Apply perk on selection."""
+    
+    # Increment perk count
+    players[0].perk_counts[perk_id] += 1
+    
+    # Mirror to other players (co-op)
+    for player in players[1:]:
+        player.perk_counts[perk_id] = players[0].perk_counts[perk_id]
+    
+    # Run apply handler
+    handler = PERK_APPLY_HANDLERS.get(perk_id)
+    if handler is not None:
+        ctx = ApplyContext(
+            state=state,
+            players=players,
+            rand=state.rng.rand,
+        )
+        handler(ctx)
+```
+
+### Frame Effects Dispatch
+
+```python src/crimson/perks/runtime/effects.py
+def perks_update_effects(
+    state: GameplayState,
+    players: list[PlayerState],
+    creatures: CreaturePool,
+    dt: float,
+) -> None:
+    """Run all perk effects hooks."""
+    
+    ctx = EffectsContext(
+        state=state,
+        players=players,
+        creatures=creatures,
+        dt=dt,
+        rand=state.rng.rand,
+    )
+    
+    # Always run bonus timers first
+    update_player_bonus_timers(ctx)
+    
+    # Run all effects steps in order
+    for step in PERKS_UPDATE_EFFECT_STEPS:
+        step(ctx)
+```
+
+## Perk Examples
+
+### Instant Effects
+
+```python
+# Breathing Room: Kill all enemies
+def apply_breathing_room(ctx: ApplyContext) -> None:
+    for creature in ctx.creatures.active_creatures():
+        creature.health = 0
+        creature.active = False
+```
+
+### Stat Modifiers
+
+```python
+# Haste: Check in player_update
+if perk_active(player, PerkId.HASTE):
+    base_speed *= 1.2  # +20% movement speed
+```
+
+### Continuous Effects
+
+```python
+# Radioactive: Damage nearby enemies
+def radioactive_effect(ctx: EffectsContext) -> None:
+    for player in ctx.players:
+        if not perk_active(player, PerkId.RADIOACTIVE):
+            continue
+        
+        for creature in ctx.creatures.active_creatures():
+            dist = distance(player.pos, creature.pos)
+            if dist < 80:
+                creature.health -= 5.0 * ctx.dt
+```
+
+## Import Boundaries
+
+<Warning>
+  **Import Rules:**
+  - `impl/` must NOT import `selection` or `availability`
+  - `runtime/` must NOT import `selection` or `availability`
+  - Registration happens ONLY in `runtime/manifest.py`
+</Warning>
+
+## Testing
+
+Guard tests ensure architecture integrity:
+
+```python tests/test_feature_hook_registries.py
+def test_perk_hooks_have_unique_perk_ids():
+    perk_ids = [hook.perk_id for hook in PERK_HOOKS_IN_ORDER]
+    assert len(perk_ids) == len(set(perk_ids))
+
+def test_effects_steps_prefix_invariant():
+    # update_player_bonus_timers must be first
+    assert PERKS_UPDATE_EFFECT_STEPS[0].__name__ == "update_player_bonus_timers"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Gameplay System" icon="crosshairs" href="/rewrite/systems/gameplay">
+    How perks affect gameplay
+  </Card>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    Where perks run in the tick
+  </Card>
+  <Card title="Crimson Module" icon="gamepad" href="/rewrite/modules/crimson">
+    Game logic overview
+  </Card>
+  <Card title="Parity Status" icon="check" href="/rewrite/parity/status">
+    Current parity state
+  </Card>
+</CardGroup>

@@ -1,0 +1,240 @@
+---
+title: Original Bugs Preserved
+description: Bugs in v1.9.93 that are fixed by default in the rewrite
+---
+
+The classic `crimsonland.exe` has several behaviors that look like genuine bugs. The rewrite **fixes these by default**, but they can be re-enabled with `--preserve-bugs` for parity testing.
+
+## Usage
+
+```bash
+# Default: bugs are fixed
+uv run crimson
+
+# Re-enable original bugs for parity testing
+uv run crimson --preserve-bugs
+```
+
+## Bug List
+
+### 1. Bonus Drop Suppression: `amount == weapon_id`
+
+**Native behavior:**
+
+In `bonus_try_spawn_on_kill`, after spawning a bonus, the exe clears the spawned entry if `bonus.amount == player1.weapon_id` **regardless of bonus type**.
+
+**Why it's a bug:**
+
+For non-weapon bonuses, `amount` is metadata (default amount) in a different integer domain than weapon IDs. This creates accidental "hard bans" where certain bonuses never drop while holding specific weapons.
+
+**Examples:**
+
+- **Reflex Boost** (`amount=3`) while holding **Shotgun** (`weapon_id=3`)
+- **Fire Bullets** (`amount=4`) while holding **Sawed-off Shotgun** (`weapon_id=4`)
+- **Freeze** (`amount=5`) while holding **Submachine Gun** (`weapon_id=5`)
+- **Shield** (`amount=7`) while holding **Mean Minigun** (`weapon_id=7`)
+- **Speed** (`amount=8`) while holding **Flamethrower** (`weapon_id=8`)
+
+**Rewrite fix:**
+
+Only suppress `Weapon` bonus drops that match a currently carried weapon ID.
+
+### 2. Greater Regeneration Has No Runtime Effect
+
+**Native behavior:**
+
+`perk_id_greater_regeneration` is defined and unlockable, but no gameplay tick logic reads it. Only `perk_id_regeneration` is checked in `perks_update_effects`.
+
+**Why it's a bug:**
+
+The in-game description says Greater Regeneration should replenish health "faster than ever". It has a prerequisite (Regeneration), clearly intending an upgrade path.
+
+**Rewrite fix:**
+
+Greater Regeneration upgrades Regeneration heal ticks from `+dt` to `+2*dt` (same timing, double healing).
+
+### 3. Bandage Applies a Health Multiplier
+
+**Native behavior:**
+
+`perk_apply` computes `roll = (crt_rand() % 50) + 1`, then **multiplies** each alive player's health by `roll`, clamped to 100.
+
+**Why it's a bug:**
+
+The perk text says "restores up to 50% health". A ×1..×50 multiplier is wildly different from a bounded heal and jumps from low health to full almost every time.
+
+**Rewrite fix:**
+
+Heal each alive player by `+1..+50` HP (additive), clamped to 100.
+
+### 4. Player-Facing Text Typos
+
+**Native behavior:**
+
+User-facing strings include spelling/grammar mistakes in both gameplay data tables and UI copy.
+
+**Evidence:** `analysis/ghidra/raw/crimsonland.exe_strings.txt`
+
+**Rewrite fix:**
+
+Display corrected text by default. Examples:
+
+<Accordion title="Full text fix list">
+| Area | Native Text | Fixed Text |
+|------|-------------|------------|
+| Perk name | `Fire Caugh` | `Fire Cough` |
+| Weapon name | `Plague Sphreader Gun` | `Plague Spreader Gun` |
+| Weapon name | `Lighting Rifle` | `Lightning Rifle` |
+| Weapon name | `Fire bullets` | `Fire Bullets` |
+| Perk description (Anxious Loader) | `waiting your gun to be reloaded` | `waiting for your gun to be reloaded` |
+| Perk description (Dodger) | `attacks you you have a chance` | `attacks you, you have a chance` |
+| Perk description (Ninja) | `have really hard time` | `have a really hard time` |
+| Perk description (Living Fortress) | `It comes a time ... Being living fortress ... You do the more damage ...` | `There comes a time ... Being a living fortress ... You do more damage ...` |
+| Bonus description (Weapon Power Up) | `Your firerate and load time increase` | `Your fire rate and load time increase` |
+| Bonus description (Fire Bullets) | `For few seconds` | `For a few seconds` |
+| End note | `the levels but the battle` | `the levels, but the battle` |
+| Quest failed | `Persistence will be rewared.` | `Persistence will be rewarded.` |
+| Tutorial hint | `Picking it you gets a new weapon.` | `Picking it up gives you a new weapon.` |
+| Tutorial hint | `exposion` | `explosion` |
+| Weapon database | `wepno #<id>` | `weapon #<id>` |
+| Weapon database | `Firerate` | `Fire rate` |
+| Perk database | `perkno #<id>` | `perk #<id>` |
+| Quest results | `State your name trooper!` | `State your name, trooper!` |
+| Game over tooltip | `The % of shot bullets hit` | `The % of bullets that hit` |
+| Statistics | `played for 1 hours 1 minutes` | `played for 1 hour 1 minute` |
+</Accordion>
+
+### 5. Stationary Reloader Empty-Reload Loop
+
+**Native behavior:**
+
+`player_update` preloads ammo when `reload_timer - frame_dt < 0` (unscaled `frame_dt`), then later decrements `reload_timer` using `reload_scale * frame_dt` (with `reload_scale = 3` when stationary).
+
+When Stationary Reloader is active, `reload_timer` can underflow in a single tick even though the preload check was still non-negative, causing ammo to never refill.
+
+**Rewrite fix:**
+
+Use the scaled reload decrement for the preload check, so ammo is always refilled when Stationary Reloader causes same-tick completion.
+
+### 6. Weapon-Drop Proximity Checks Player 1 Only
+
+**Native behavior:**
+
+In `bonus_try_spawn_on_kill`, when the spawned bonus is `Weapon`, the 56-unit proximity check uses only `player1.pos`. In co-op, a weapon drop near only player 2 does **not** convert to a 100-point bonus.
+
+**Rewrite fix:**
+
+Convert Weapon drops to 100-point bonuses when spawning within 56 units of **any** player.
+
+### 7-17. Co-op Asymmetry Bugs
+
+The original has 11 bugs where co-op behavior reads player-1-only state:
+
+<AccordionGroup>
+  <Accordion title="7. Regeneration applies to player 1 only">
+    `perks_update_effects` checks Regeneration via player-1-owned perk state, and heals only `player1.health` (repeated `player_count` times, over-healing player 1).
+    
+    **Fix:** Heal each alive player by `+dt` (or `+2*dt` with Greater Regeneration).
+  </Accordion>
+  
+  <Accordion title="8. Co-op heart pulse inherits player 1 low-health state">
+    In multiplayer HUD render, player 1 pulse speed (2.0 or 5.0) is reused for later heart icons. If player 1 is below 30 HP, player 2's heart pulses at "low health" speed even when player 2 is healthy.
+    
+    **Fix:** Pulse speed is computed per player from that player's own health.
+  </Accordion>
+  
+  <Accordion title="9. Co-op damage/death SFX guard reads player 1 health">
+    In `player_take_damage`, the "was alive before this hit" guard is computed from `player1.health` even when damage is applied to player 2. In co-op, if player 1 is dead, player 2 damage can skip SFX.
+    
+    **Fix:** Compute pre-hit alive guard from the target player's own health.
+  </Accordion>
+  
+  <Accordion title="10. Jinxed excludes slot 383">
+    Jinxed chooses a random creature slot with `rand % 0x17f` (383). The creature pool has `0x180` (384) entries, so index 383 is never picked.
+    
+    **Fix:** Use full `0x180` range for Jinxed random kills.
+  </Accordion>
+  
+  <Accordion title="11. Cursor-target perks read player 1 aim only">
+    Doctor targeting, Pyrokinetic hit lookup, and Evil Eyes all source aim from `player_state_table.aim_x/aim_y` (player 1) regardless of which player is alive/aiming.
+    
+    **Fix:** Evaluate cursor-target perks per alive player.
+  </Accordion>
+  
+  <Accordion title="12. Jinxed self-damage always hits player 1">
+    In the Jinxed "accident" branch, the 5 HP penalty applies to `player_state_table.health` directly (player 1 only).
+    
+    **Fix:** Apply accident to a random alive player.
+  </Accordion>
+  
+  <Accordion title="13. Fire Bullets globally coupled in co-op">
+    `projectile_spawn` checks whether player 1 or player 2 has active Fire Bullets timer, but conversion is not owner-aware. One player's timer converts the other player's projectiles.
+    
+    **Fix:** Fire Bullets conversion is owner-aware.
+  </Accordion>
+  
+  <Accordion title="14. Pyromaniac offer gating checks player 1 weapon only">
+    In `perks_generate_choices`, Pyromaniac offer gate checks `player_state_table.weapon_id == 8` (Flamethrower). In co-op, player 2 carrying Flamethrower doesn't unlock Pyromaniac unless player 1 also has it.
+    
+    **Fix:** Allow Pyromaniac when any alive player has Flamethrower.
+  </Accordion>
+  
+  <Accordion title="15. Joystick POV aim reads player 1 POV only">
+    `input_aim_pov_left_active` / `input_aim_pov_right_active` read POV input from joystick slot 0 only. In co-op, player 2 joystick aim can ignore player 2 POV input.
+    
+    **Fix:** Read POV input from current player's input slot.
+  </Accordion>
+  
+  <Accordion title="16. Pistol no-magnet fallback gate checks player 1 only">
+    When base 1-in-9 spawn roll fails, the extra pistol fallback (`rand % 5 == 1`) is gated by player 1 holding Pistol. In co-op, player 2 holding Pistol doesn't enable fallback unless player 1 also has Pistol.
+    
+    **Fix:** Allow pistol fallback when any player holds Pistol.
+  </Accordion>
+  
+  <Accordion title="17. Mini-Rocket Swarmers spread collapse">
+    `player_fire_weapon` sets per-rocket spread step to `ammo * 1.0471976` (`ammo * pi/3`), then spawns `ammo` rockets at `angle += step`. Because heading is periodic (2*pi), some clip sizes alias to repeated directions. Example: with clip size 6, all six rockets get the same heading.
+    
+    **Fix:** Even, aim-centered cone spread so each rocket gets distinct heading.
+  </Accordion>
+</AccordionGroup>
+
+## Impact on Parity Testing
+
+For differential testing against original exe captures:
+
+```bash
+# Match original behavior (bugs enabled)
+uv run crimson --preserve-bugs --seed 42
+
+# Record trace with bugs
+uv run crimson dbg record replay.crd --preserve-bugs
+
+# Compare with original capture
+uv run crimson dbg diff original.cdt rewrite-with-bugs.cdt
+```
+
+## Bug Detection in Source
+
+These bugs were identified through:
+
+1. **Static analysis** — Reading decompiled code and noticing asymmetry
+2. **Runtime evidence** — Frida captures showing unexpected behavior
+3. **Parity divergence** — Differential testing revealed mismatches
+4. **Intent analysis** — Comparing implementation vs in-game descriptions
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Parity Status" icon="check" href="/rewrite/parity/status">
+    Current verification state
+  </Card>
+  <Card title="Float32 Policy" icon="calculator" href="/rewrite/parity/float-policy">
+    Float precision policy
+  </Card>
+  <Card title="Rewrite Overview" icon="book" href="/rewrite/overview">
+    Back to overview
+  </Card>
+  <Card title="Source Code" icon="code" href="https://github.com/banteg/crimson">
+    View on GitHub
+  </Card>
+</CardGroup>

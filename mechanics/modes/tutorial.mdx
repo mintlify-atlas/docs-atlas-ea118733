@@ -1,0 +1,229 @@
+---
+title: Tutorial Mode
+description: Learn game basics across 5 training missions
+icon: graduation-cap
+---
+
+# Tutorial Mode
+
+Tutorial mode teaches Crimsonland's core mechanics through 5 guided missions. Each mission introduces specific concepts with on-screen instructions and limited enemy threats.
+
+## Mode ID
+
+**Game Mode**: `8` (`GameMode.TUTORIAL`)
+
+From `src/crimson/game_modes.py:14`
+
+## Mission Structure
+
+The tutorial consists of 5 sequential missions that must be completed in order.
+
+### Tutorial 1: Movement and Shooting
+
+**Objective**: Kill 10 zombies
+
+**Teaches**:
+- WASD/Arrow keys for movement
+- Mouse aim
+- Left-click to fire
+- Basic enemy behavior
+
+**Environment**: Small arena, slow enemies, no bonuses
+
+**Weapon**: Pistol (fixed)
+
+### Tutorial 2: Weapon Bonuses
+
+**Objective**: Kill 15 enemies, collect weapon bonuses
+
+**Teaches**:
+- Weapon bonus pickups
+- Different weapon types (Shotgun, Assault Rifle)
+- Weapon switching via bonuses
+- Clip management
+
+**Environment**: Medium arena, mixed enemy types
+
+**Starting Weapon**: Pistol
+**Bonus Weapons**: Guaranteed Shotgun and Assault Rifle drops
+
+### Tutorial 3: Power-up Bonuses
+
+**Objective**: Survive 90 seconds, use power-ups
+
+**Teaches**:
+- Power-up bonus types (Shield, Nuke, Freeze)
+- Bonus pickup mechanics
+- Tactical bonus usage
+- Survival tactics
+
+**Environment**: Large arena, continuous spawns
+
+**Starting Weapon**: Assault Rifle
+**Bonuses**: Guaranteed Shield, Nuke, and Freeze drops at specific times
+
+### Tutorial 4: Perks and Leveling
+
+**Objective**: Reach level 3, select perks
+
+**Teaches**:
+- Experience system
+- Level-up mechanics
+- Perk selection screen
+- Perk effects (limited pool)
+
+**Environment**: Medium arena, moderate enemy count
+
+**Starting Weapon**: Submachine Gun
+**Available Perks**: Fastshot, Fastloader, Bloody Mess, Sharpshooter, Radioactive (safe tutorial perks only)
+
+### Tutorial 5: Putting It All Together
+
+**Objective**: Survive 3 minutes with all mechanics active
+
+**Teaches**:
+- Combining weapons, perks, and bonuses
+- Advanced tactics
+- Resource management
+- Survival strategy
+
+**Environment**: Large arena, escalating difficulty
+
+**Starting Weapon**: Player choice from unlocked weapons
+**All Systems Active**: Full bonus drops, perk leveling, weapon variety
+
+## Tutorial-Specific Mechanics
+
+### On-Screen Instructions
+
+Tutorials display text prompts explaining current objectives and controls:
+
+```
+"Move with WASD or Arrow Keys"
+"Aim with the mouse"
+"Click to shoot"
+"Collect the weapon bonus!"
+```
+
+Instructions pause or slow gameplay until acknowledged or completed.
+
+### Reduced Difficulty
+
+Tutorial enemies are weaker than standard game enemies:
+
+**Damage Reduction**: Tutorial enemies deal 50% damage
+**HP Reduction**: Tutorial enemies have 70% HP
+**Spawn Rate**: Controlled, non-escalating spawn timing
+
+### Forced Bonus Drops
+
+Unlike normal play, tutorials guarantee specific bonuses at scripted moments to teach mechanics reliably.
+
+**Example (Tutorial 3)**:
+```python
+# At 30 seconds: Spawn Shield bonus
+# At 60 seconds: Spawn Nuke bonus
+# At 80 seconds: Spawn Freeze bonus
+```
+
+### Limited Perk Pool
+
+Tutorial 4 restricts perk selection to safe, educational perks. Dangerous perks (Death Clock, Grim Deal, Fatal Lottery) are excluded.
+
+**Tutorial Perk Filter**:
+- Must be easy to understand
+- No death-risk perks
+- No complex interactions
+- Clear mechanical benefit
+
+### Unlocking Full Game
+
+Completing all 5 tutorials unlocks Survival mode with no restrictions. Quest mode requires separate progression.
+
+Tutorials can be replayed at any time but don't affect progression after initial completion.
+
+## Tutorial-Specific Tips
+
+<Tip>
+**Take Your Time**: Tutorials have no time pressure. Experiment with mechanics before completing objectives.
+</Tip>
+
+<Tip>
+**Test Weapons**: Tutorial 2 is ideal for learning Shotgun spread vs. Assault Rifle accuracy.
+</Tip>
+
+<Tip>
+**Practice Perk Selection**: Tutorial 4's perk choices are representative of real decisions. Think about trade-offs.
+</Tip>
+
+<Info>
+Skipping tutorials is not recommended for new players. They efficiently teach mechanics that trial-and-error would take much longer to discover.
+</Info>
+
+## Post-Tutorial Progression
+
+After completing tutorials:
+
+**Unlocked**:
+- Survival mode (full access)
+- Basic weapons (Pistol, Assault Rifle, Shotgun, Submachine Gun)
+- Rush mode
+
+**Locked**:
+- Quest mode (requires separate progression)
+- Advanced weapons (unlocked through quests)
+- Secret weapons (special conditions)
+
+## Tutorial Mode vs. Quest Mode
+
+Tutorials and quests both feature structured missions, but differ significantly:
+
+| Feature | Tutorial | Quest |
+|---------|----------|-------|
+| Purpose | Teach mechanics | Challenge mastery |
+| Difficulty | Very low | Low to extreme |
+| Enemy Stats | Reduced | Standard or buffed |
+| Instructions | Explicit prompts | None |
+| Forced Drops | Yes | No |
+| Mission Count | 5 | 60 |
+| Progression | Linear | Gated chapters |
+
+## Common Tutorial Mistakes
+
+<Warning>
+**Standing Still**: Even in tutorials, movement is critical. Practice circle-strafing early.
+</Warning>
+
+<Warning>
+**Ignoring Bonuses**: Tutorials teach bonus usage—don't skip them. Learn when each bonus is optimal.
+</Warning>
+
+<Warning>
+**Panic Reloading**: Reloading while surrounded is dangerous. Learn safe reload timing in low-pressure tutorials.
+</Warning>
+
+## Speedrunning Tutorials
+
+Experienced players can complete all 5 tutorials in under 10 minutes:
+
+**Tutorial 1**: 30 seconds (10 kills)
+**Tutorial 2**: 45 seconds (15 kills, 2 bonuses)
+**Tutorial 3**: 90 seconds (forced timer)
+**Tutorial 4**: 2 minutes (level to 3)
+**Tutorial 5**: 3 minutes (survival timer)
+
+**Total Minimum**: ~7 minutes
+
+## Related Documentation
+
+- [Survival Mode](/mechanics/modes/survival) - Primary post-tutorial mode
+- [Quest Mode](/mechanics/modes/quest) - Advanced missions
+- [Weapons](/mechanics/combat/weapons) - Weapon mechanics taught in Tutorial 2
+- [Perks](/mechanics/combat/perks) - Perk system taught in Tutorial 4
+- [Bonuses](/mechanics/combat/bonuses) - Power-ups taught in Tutorial 3
+
+## Source Code References
+
+- `src/crimson/modes/tutorial_mode.py` - Tutorial implementation
+- `src/crimson/tutorial/` - Tutorial-specific scripts
+- `src/crimson/game_modes.py:14` - Mode ID definition

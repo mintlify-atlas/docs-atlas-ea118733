@@ -1,0 +1,234 @@
+---
+title: Config File Format
+description: Binary configuration blob (crimson.cfg) storing game settings and keybinds
+---
+
+Crimsonland stores game configuration in a fixed-size binary blob called `crimson.cfg`. This is **not** the save file (that's `game.cfg`).
+
+## File Properties
+
+**Path**: `<game_dir>\crimson.cfg`  
+**Size**: `0x480` bytes (1152 bytes)  
+**Endianness**: Little-endian  
+**Encryption**: None
+
+## Binary Structure
+
+```c
+typedef struct {
+    u8 sound_disabled;              // +0x000
+    u8 music_disabled;              // +0x001
+    u8 highscore_date_mode;         // +0x002
+    u8 highscore_duplicate_mode;    // +0x003
+    u8 hud_indicator_toggle[2];     // +0x004
+    u8 reserved0_06[8];             // +0x006
+    u8 fx_detail_flag0;             // +0x00e
+    u8 reserved0_0f;                // +0x00f
+    u8 fx_detail_flag1;             // +0x010
+    u8 fx_detail_flag2;             // +0x011
+    u8 reserved0_12[2];             // +0x012
+    i32 player_count;               // +0x014
+    i32 game_mode;                  // +0x018
+    i32 player_mode_flags;          // +0x01c
+    u8 reserved0_20[0x24];          // +0x020
+    i32 aim_scheme;                 // +0x044
+    u8 reserved0_48[0x28];          // +0x048
+    float texture_scale;            // +0x070
+    char player_name_buf[12];       // +0x074
+    i32 name_slot_selected;         // +0x080
+    i32 name_slot_count;            // +0x084
+    i32 name_slot_order[8];         // +0x088
+    char saved_names[8][27];        // +0x0a8
+    char player_name[32];           // +0x180
+    i32 player_name_length;         // +0x1a0
+    u8 reserved1[0x14];             // +0x1a4
+    i32 display_bpp;                // +0x1b8
+    i32 screen_width;               // +0x1bc
+    i32 screen_height;              // +0x1c0
+    i32 windowed;                   // +0x1c4
+    i32 keybinds_p1[13];            // +0x1c8
+    u8 reserved2[0x0c];             // +0x1fc
+    i32 keybinds_p2[13];            // +0x208
+    u8 reserved3[0x0c];             // +0x23c
+    u8 reserved4[0x200];            // +0x248
+    u8 hardcore;                    // +0x448
+    u8 full_version;                // +0x449
+    u8 reserved5[2];                // +0x44a
+    i32 perk_prompt_counter;        // +0x44c
+    u8 reserved6[0x14];             // +0x450
+    float sfx_volume;               // +0x464
+    float music_volume;             // +0x468
+    u8 gore_disabled;               // +0x46c
+    u8 score_load_gate;             // +0x46d
+    u8 reserved7[2];                // +0x46e
+    i32 detail_preset;              // +0x470
+    float mouse_sensitivity;        // +0x474
+    i32 key_pick_perk;              // +0x478
+    i32 key_reload;                 // +0x47c
+} crimson_cfg_t;  // 0x480 bytes total
+```
+
+## Key Fields
+
+### Display Settings
+
+| Offset | Field | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| 0x1b8 | display_bpp | i32 | 32 | Bits per pixel (16/32) |
+| 0x1bc | screen_width | i32 | 800 | Screen width in pixels |
+| 0x1c0 | screen_height | i32 | 600 | Screen height in pixels |
+| 0x1c4 | windowed | i32 | 0 | Windowed mode (0=fullscreen, 1=windowed) |
+
+### Audio Settings
+
+| Offset | Field | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| 0x000 | sound_disabled | u8 | 0 | Sound FX disabled flag |
+| 0x001 | music_disabled | u8 | 0 | Music disabled flag |
+| 0x464 | sfx_volume | float | 1.0 | SFX volume (0.0-1.0) |
+| 0x468 | music_volume | float | 1.0 | Music volume (0.0-1.0) |
+
+### Graphics Detail
+
+| Offset | Field | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| 0x00e | fx_detail_flag0 | u8 | 1 | Shadows enabled |
+| 0x010 | fx_detail_flag1 | u8 | 1 | Extra FX passes |
+| 0x011 | fx_detail_flag2 | u8 | 1 | Additional effects |
+| 0x46c | gore_disabled | u8 | 0 | Gore disabled flag |
+| 0x470 | detail_preset | i32 | 5 | Graphics preset (1-5) |
+
+**Detail preset mapping**:
+
+| Preset | flag0 | flag1 | flag2 | Description |
+|--------|-------|-------|-------|-------------|
+| 1 | 0 | 0 | 0 | Low |
+| 2 | 0 | 0 | unchanged | Medium |
+| 3 | 1 | 1 | 1 | High |
+| 4 | 1 | 1 | 1 | Very High |
+| 5 | 1 | 1 | 1 | Ultra |
+
+### Keybinds
+
+**Player 1**: Offset `0x1c8` (13 dwords)  
+**Player 2**: Offset `0x208` (13 dwords)
+
+Each block:
+
+| Index | Action | P1 Default | P2 Default |
+|-------|--------|------------|------------|
+| 0 | Move Forward | 0x11 (W) | 0xc8 (Up) |
+| 1 | Move Backward | 0x1f (S) | 0xd0 (Down) |
+| 2 | Turn Left | 0x1e (A) | 0xcb (Left) |
+| 3 | Turn Right | 0x20 (D) | 0xcd (Right) |
+| 4 | Fire | 0x100 (LMB) | 0x9d (RCtrl) |
+| 5-6 | Reserved | 0x17e | 0x17e |
+| 7 | Aim Left | 0x10 (Q) | 0xd3 (Del) |
+| 8 | Aim Right | 0x12 (E) | 0xd1 (PgDn) |
+| 9 | Axis Aim Y | 0x140 (Mouse Y) | 0x17e |
+| 10 | Axis Aim X | 0x13f (Mouse X) | 0x17e |
+| 11 | Axis Move Y | 0x153 | 0x17e |
+| 12 | Axis Move X | 0x17e | 0x17e |
+
+**Note**: Values are DirectInput scan codes.
+
+### Player Names
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x0a8 | saved_names | char[8][27] | 8 saved player names (27 bytes each) |
+| 0x180 | player_name | char[32] | Current player name |
+| 0x1a0 | player_name_length | i32 | Length of player_name |
+
+## Example Config
+
+Hex dump of a typical `crimson.cfg`:
+
+```
+Offset  Hex                                           ASCII
+------  -----------------------------------------    -----
+0x000   00 00 00 00 00 00 00 00 00 00 00 00 00 00   ..............  (audio/flags)
+0x00e   01 00 01 01 00 00                           ......          (fx flags)
+0x1b8   20 00 00 00                                   ...            (bpp=32)
+0x1bc   00 04 00 00                                  ....            (width=1024)
+0x1c0   00 03 00 00                                  ....            (height=768)
+0x1c4   01 00 00 00                                  ....            (windowed=1)
+0x1c8   11 00 00 00 1f 00 00 00 ...                 ....            (p1 keybinds)
+0x464   00 00 80 3f                                  ...?            (sfx_vol=1.0)
+0x468   00 00 80 3f                                  ...?            (music_vol=1.0)
+0x470   05 00 00 00                                  ....            (preset=5)
+```
+
+## Python Decoder
+
+```python
+import struct
+from pathlib import Path
+
+class CrimsonConfig:
+    def __init__(self, data: bytes):
+        if len(data) != 0x480:
+            raise ValueError(f"Invalid config size: {len(data)}")
+        
+        self.data = data
+    
+    def get_u8(self, offset: int) -> int:
+        return self.data[offset]
+    
+    def get_i32(self, offset: int) -> int:
+        return struct.unpack_from("<i", self.data, offset)[0]
+    
+    def get_float(self, offset: int) -> float:
+        return struct.unpack_from("<f", self.data, offset)[0]
+    
+    def get_string(self, offset: int, length: int) -> str:
+        raw = self.data[offset:offset+length]
+        return raw.split(b'\0')[0].decode('utf-8', errors='replace')
+    
+    @property
+    def screen_width(self) -> int:
+        return self.get_i32(0x1bc)
+    
+    @property
+    def screen_height(self) -> int:
+        return self.get_i32(0x1c0)
+    
+    @property
+    def windowed(self) -> bool:
+        return self.get_i32(0x1c4) != 0
+    
+    @property
+    def sfx_volume(self) -> float:
+        return self.get_float(0x464)
+    
+    @property
+    def music_volume(self) -> float:
+        return self.get_float(0x468)
+    
+    @property
+    def player_name(self) -> str:
+        return self.get_string(0x180, 32)
+    
+    def get_keybind(self, player: int, action: int) -> int:
+        """Get keybind for player (0 or 1) and action index (0-12)."""
+        base = 0x1c8 if player == 0 else 0x208
+        return self.get_i32(base + action * 4)
+
+# Usage:
+config = CrimsonConfig(Path("crimson.cfg").read_bytes())
+print(f"Resolution: {config.screen_width}x{config.screen_height}")
+print(f"Windowed: {config.windowed}")
+print(f"Player: {config.player_name}")
+print(f"P1 fire key: 0x{config.get_keybind(0, 4):x}")
+```
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Save Files" href="/reverse-engineering/formats/save-files">
+    Save game format (game.cfg)
+  </Card>
+  <Card title="PAQ Archives" href="/reverse-engineering/formats/paq-archives">
+    Asset archive format
+  </Card>
+</CardGroup>

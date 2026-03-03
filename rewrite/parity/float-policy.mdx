@@ -1,0 +1,297 @@
+---
+title: Float32 Parity Policy
+description: Why float precision matters for deterministic replay
+---
+
+For deterministic gameplay and replay verification, **float behavior is part of the contract**.
+
+## Default Rule
+
+<Note>
+  In deterministic gameplay paths, prefer **native float32 fidelity** over source readability.
+</Note>
+
+This means:
+
+- Keep decompiled float constants when they influence simulation
+- Keep native operation ordering when it changes rounding boundaries
+- Keep float32 store/truncation points where native stores to `float`
+
+<Warning>
+  Do NOT auto-normalize literals like `0.6000000238418579` to `0.6` in parity-critical code unless parity evidence shows the change is behavior-neutral.
+</Warning>
+
+## Why This Matters
+
+Small float deltas can reorder branch decisions and collision outcomes, then amplify into:
+
+- RNG drift (different random values)
+- Deterministic divergence over long runs
+- Replay verification failures
+
+### Example: Movement Delta
+
+```python
+# Readable but wrong precision
+speed = 100.0 * 0.6  # Uses float64 intermediate
+
+# Native precision (correct)
+speed = 100.0 * 0.6000000238418579  # Matches float32 constant
+```
+
+Over 1000 ticks, these accumulate to different positions, triggering different collisions and RNG draws.
+
+## Original x87 Behavior
+
+The original executable uses x87 FPU with specific precision mode:
+
+### CRT Precision Control
+
+CRT startup explicitly sets x87 to **53-bit precision mode (`PC_53`)**:
+
+```c
+// CRT initialization
+_controlfp(_PC_53, _MCW_PC);  // Set 53-bit precision
+```
+
+Evidence:
+- `analysis/binary_ninja/raw/crimsonland.exe.bndb_hlil.txt:83734`
+- `analysis/ida/raw/crimsonland.exe/functions.json` around line 13692
+
+### Float Storage Pattern
+
+Decompilation shows:
+
+1. **Extended intermediates** — Trig/atan operations use `float10` (x87 extended precision)
+2. **Float32 storage** — Results spill to `float` state fields
+
+```c
+// Decompiled creature movement
+float10 angle = atan2(dy, dx);           // Extended precision
+float heading = (float)(angle + offset);  // Spill to float32
+```
+
+Evidence:
+- `analysis/ghidra/raw/crimsonland.exe_decompiled.c` lines 21767, 12248
+- Binary Ninja shows `fconvert.t` (widen) and `fconvert.s` (spill)
+
+<Check>
+  The game is **not** "everything in 80-bit all the way down". It's "extended intermediates, float32 storage."
+</Check>
+
+## Rewrite Math Model
+
+Deterministic gameplay follows three rules:
+
+<Steps>
+  <Step title="Use f32 as domain type">
+    Positions, headings, timers, speeds use `f32` (float32) unless truly boundary-only.
+  </Step>
+  <Step title="Widen only at boundaries">
+    Replay decode, serialization, diagnostics can use `f64`, then immediately spill back to `f32`.
+  </Step>
+  <Step title="Route through native-style helpers">
+    Use shared trig/angle helpers, not ad-hoc per-module implementations.
+  </Step>
+</Steps>
+
+### Python Implementation
+
+```python src/crimson/math_parity.py
+import numpy as np
+
+def f32(x: float) -> np.float32:
+    """Truncate to float32 precision."""
+    return np.float32(x)
+
+# Example: Player movement
+dt_f32 = f32(dt)
+speed = f32(base_speed * dt_f32)
+player.pos.x = f32(player.pos.x + speed)
+```
+
+### Native Trig Helpers
+
+```python
+def sin_native(angle: float) -> float:
+    """Native-style sine (extended precision -> float32)."""
+    return float(f32(math.sin(angle)))
+
+def cos_native(angle: float) -> float:
+    """Native-style cosine."""
+    return float(f32(math.cos(angle)))
+
+def atan2_native(dy: float, dx: float) -> float:
+    """Native-style atan2."""
+    return float(f32(math.atan2(dy, dx)))
+```
+
+## Native Constants
+
+Keep decompiled float32 bit patterns:
+
+```python
+# Native constants (from decompile)
+PI_F32 = 3.1415927410125732  # float32 pi
+HALF_PI_F32 = 1.5707963705062866  # float32 pi/2
+TAU_F32 = 6.2831854820251465  # float32 2*pi
+
+# Turn rate scale (from decompile)
+TURN_RATE_SCALE = 1.0471976  # pi/3 in float32
+```
+
+<Note>
+  These match the exact bit patterns from the original binary, not mathematical ideals.
+</Note>
+
+## Explicit Spill Points
+
+```python
+def angle_approach(
+    current: float,
+    target: float,
+    turn_rate: float,
+) -> float:
+    """Approach target angle with turn rate."""
+    
+    # Compute delta (extended precision)
+    delta = target - current
+    
+    # Normalize to [-pi, pi]
+    if delta > PI_F32:
+        delta -= TAU_F32
+    elif delta < -PI_F32:
+        delta += TAU_F32
+    
+    # Clamp turn amount
+    turn = max(-turn_rate, min(turn_rate, delta))
+    
+    # Spill to float32 at return (native store point)
+    return f32(current + turn)
+```
+
+## Differential Evidence
+
+Sessions repeatedly show divergence when arithmetic order or spill points differ:
+
+### Session 18
+
+Decompile-order `angle_approach` fix moved first mismatch from tick 7722 to 7756.
+
+**Evidence:** `docs/frida/differential-sessions/session-18.md`
+
+### Session 19
+
+Tighter float32 spill behavior in creature heading/tau-boundary handling cleared remaining `quest_1_8` capture.
+
+**Evidence:** `docs/frida/differential-sessions/session-19.md`
+
+## When to Normalize
+
+Literal simplification is acceptable when **all** of the following are true:
+
+1. The path is non-deterministic or presentation-only (not gameplay simulation)
+2. Differential evidence (capture + verifier) shows no behavior change
+3. A test or session note records that evidence
+
+If any condition is missing, **keep native-looking float behavior**.
+
+## Example: Creature Movement
+
+```python src/crimson/creatures/ai.py
+def creature_ai_update(
+    creature: Creature,
+    target_pos: Vec2,
+    dt: float,
+) -> None:
+    """Update creature AI with native float32 precision."""
+    
+    # Compute direction (extended precision)
+    dx = target_pos.x - creature.pos.x
+    dy = target_pos.y - creature.pos.y
+    
+    # Native atan2
+    target_angle = atan2_native(dy, dx)
+    
+    # Approach with native turn rate
+    creature.heading = angle_approach(
+        creature.heading,
+        target_angle,
+        turn_rate=f32(creature.turn_rate * f32(dt)),
+    )
+    
+    # Move (float32 precision)
+    speed = f32(creature.base_speed * f32(dt))
+    creature.pos.x = f32(creature.pos.x + f32(cos_native(creature.heading) * speed))
+    creature.pos.y = f32(creature.pos.y + f32(sin_native(creature.heading) * speed))
+```
+
+## Zig Verifier Implementation
+
+The Zig verifier uses explicit native math helpers:
+
+```zig crimson-zig/src/runtime/native_math.zig
+const PI: f32 = 3.1415927410125732;
+const TAU: f32 = 6.2831854820251465;
+
+pub fn roundF32(x: anytype) f32 {
+    return @floatCast(@as(f64, @floatCast(x)));
+}
+
+pub fn sinNative(x: f32) f32 {
+    return roundF32(@sin(@as(f64, x)));
+}
+
+pub fn cosNative(x: f32) f32 {
+    return roundF32(@cos(@as(f64, x)));
+}
+
+pub fn atan2Native(y: f32, x: f32) f32 {
+    return roundF32(@atan2(@as(f64, y), @as(f64, x)));
+}
+```
+
+## Testing Strategy
+
+Verify float behavior with:
+
+1. **Unit tests** — Known input/output pairs from captures
+2. **Differential captures** — Tick-by-tick comparison with original
+3. **Replay checkpoints** — State hash verification at sampled ticks
+
+```python tests/test_float_parity.py
+def test_angle_approach_native_precision():
+    # From differential capture tick 7722
+    current = 1.5707963267948966
+    target = 1.5707963705062866  # HALF_PI_F32
+    turn_rate = 0.1
+    
+    result = angle_approach(current, target, turn_rate)
+    
+    # Must match native spill precision
+    expected = f32(current + turn_rate)
+    assert result == expected
+```
+
+## Documentation
+
+For expression-level lookup table with decompile anchors, see:
+
+**`docs/rewrite/float-expression-precision-map.md`**
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    How float precision affects simulation
+  </Card>
+  <Card title="Parity Status" icon="check" href="/rewrite/parity/status">
+    Current verification state
+  </Card>
+  <Card title="Original Bugs" icon="bug" href="/rewrite/parity/original-bugs">
+    Bugs that involve float precision
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    How replays verify float behavior
+  </Card>
+</CardGroup>

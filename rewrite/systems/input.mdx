@@ -1,0 +1,443 @@
+---
+title: Input System
+description: Keyboard, mouse, gamepad input handling and multiplayer input frames
+---
+
+The input system collects keyboard, mouse, and gamepad input and normalizes it for multiplayer gameplay.
+
+## Architecture
+
+- **`src/grim/input.py`** — Raw input wrapper (raylib)
+- **`src/crimson/local_input.py`** — Local input collection and schemes
+- **`src/crimson/input_codes.py`** — Input code constants
+- **`src/crimson/sim/input.py`** — Player input struct
+- **`src/crimson/sim/input_frame.py`** — Multiplayer input normalization
+
+## Input Flow
+
+<Steps>
+  <Step title="Raw Input Collection">
+    Collect keyboard/mouse/gamepad state from raylib.
+  </Step>
+  <Step title="Input Mapping">
+    Map raw inputs to player actions (move, fire, reload).
+  </Step>
+  <Step title="Input Frame Build">
+    Package inputs into `PlayerInput` structs.
+  </Step>
+  <Step title="Input Frame Normalization">
+    Normalize for fixed player count (multiplayer).
+  </Step>
+  <Step title="Simulation">
+    Pass normalized inputs to `WorldState.step()`.
+  </Step>
+</Steps>
+
+## Player Input Struct
+
+```python src/crimson/sim/input.py
+class PlayerInput(msgspec.Struct):
+    """Per-player input for one frame."""
+    
+    # Movement
+    up: bool = False
+    down: bool = False
+    left: bool = False
+    right: bool = False
+    
+    # Combat
+    fire: bool = False
+    reload: bool = False
+    
+    # Aim (mouse/analog stick)
+    aim_x: float = 0.0
+    aim_y: float = 0.0
+    
+    # UI
+    perk_select_1: bool = False
+    perk_select_2: bool = False
+    perk_select_3: bool = False
+    perk_select_4: bool = False
+```
+
+## Input Collection
+
+### Keyboard + Mouse
+
+```python src/crimson/local_input.py
+def collect_keyboard_mouse_input(
+    player_config: PlayerConfig,
+) -> PlayerInput:
+    """Collect keyboard + mouse input for one player."""
+    
+    # Movement keys
+    up = rl.is_key_down(player_config.key_up)
+    down = rl.is_key_down(player_config.key_down)
+    left = rl.is_key_down(player_config.key_left)
+    right = rl.is_key_down(player_config.key_right)
+    
+    # Combat keys
+    fire = rl.is_mouse_button_down(rl.MOUSE_LEFT_BUTTON)
+    reload = rl.is_key_down(player_config.key_reload)
+    
+    # Mouse aim
+    mouse = rl.get_mouse_position()
+    aim_x = float(mouse.x)
+    aim_y = float(mouse.y)
+    
+    # Perk selection
+    perk_select_1 = rl.is_key_pressed(rl.KEY_ONE)
+    perk_select_2 = rl.is_key_pressed(rl.KEY_TWO)
+    perk_select_3 = rl.is_key_pressed(rl.KEY_THREE)
+    perk_select_4 = rl.is_key_pressed(rl.KEY_FOUR)
+    
+    return PlayerInput(
+        up=up,
+        down=down,
+        left=left,
+        right=right,
+        fire=fire,
+        reload=reload,
+        aim_x=aim_x,
+        aim_y=aim_y,
+        perk_select_1=perk_select_1,
+        perk_select_2=perk_select_2,
+        perk_select_3=perk_select_3,
+        perk_select_4=perk_select_4,
+    )
+```
+
+### Gamepad
+
+```python
+def collect_gamepad_input(
+    player_index: int,
+    player_config: PlayerConfig,
+) -> PlayerInput:
+    """Collect gamepad input for one player."""
+    
+    gamepad_id = player_config.gamepad_id
+    
+    if not rl.is_gamepad_available(gamepad_id):
+        return PlayerInput()  # Empty input
+    
+    # D-pad / left stick for movement
+    left_stick_x = rl.get_gamepad_axis_movement(
+        gamepad_id,
+        rl.GAMEPAD_AXIS_LEFT_X,
+    )
+    left_stick_y = rl.get_gamepad_axis_movement(
+        gamepad_id,
+        rl.GAMEPAD_AXIS_LEFT_Y,
+    )
+    
+    up = left_stick_y < -0.3 or rl.is_gamepad_button_down(
+        gamepad_id, rl.GAMEPAD_BUTTON_LEFT_FACE_UP
+    )
+    down = left_stick_y > 0.3 or rl.is_gamepad_button_down(
+        gamepad_id, rl.GAMEPAD_BUTTON_LEFT_FACE_DOWN
+    )
+    left = left_stick_x < -0.3 or rl.is_gamepad_button_down(
+        gamepad_id, rl.GAMEPAD_BUTTON_LEFT_FACE_LEFT
+    )
+    right = left_stick_x > 0.3 or rl.is_gamepad_button_down(
+        gamepad_id, rl.GAMEPAD_BUTTON_LEFT_FACE_RIGHT
+    )
+    
+    # Right stick for aim
+    right_stick_x = rl.get_gamepad_axis_movement(
+        gamepad_id,
+        rl.GAMEPAD_AXIS_RIGHT_X,
+    )
+    right_stick_y = rl.get_gamepad_axis_movement(
+        gamepad_id,
+        rl.GAMEPAD_AXIS_RIGHT_Y,
+    )
+    
+    # Convert stick to aim position
+    aim_x, aim_y = stick_to_aim(
+        right_stick_x,
+        right_stick_y,
+        player_pos=...,
+    )
+    
+    # Triggers for fire/reload
+    fire = rl.is_gamepad_button_down(
+        gamepad_id,
+        rl.GAMEPAD_BUTTON_RIGHT_TRIGGER_1,
+    )
+    reload = rl.is_gamepad_button_down(
+        gamepad_id,
+        rl.GAMEPAD_BUTTON_LEFT_TRIGGER_1,
+    )
+    
+    return PlayerInput(
+        up=up,
+        down=down,
+        left=left,
+        right=right,
+        fire=fire,
+        reload=reload,
+        aim_x=aim_x,
+        aim_y=aim_y,
+    )
+```
+
+## Aim Schemes
+
+The game supports multiple aim schemes:
+
+```python src/crimson/aim_schemes.py
+class AimScheme(enum.Enum):
+    MOUSE = 0          # Mouse cursor position
+    DIRECTION = 1      # Last movement direction
+    ANALOG = 2         # Gamepad right stick
+    HYBRID = 3         # Direction + analog
+```
+
+### Mouse Aim
+
+```python
+def calculate_aim_angle_mouse(
+    player_pos: Vec2,
+    mouse_x: float,
+    mouse_y: float,
+) -> float:
+    """Calculate aim angle from mouse position."""
+    dx = mouse_x - player_pos.x
+    dy = mouse_y - player_pos.y
+    return math.atan2(dy, dx)
+```
+
+### Direction Aim
+
+```python
+def calculate_aim_angle_direction(
+    player: PlayerState,
+    input: PlayerInput,
+) -> float:
+    """Calculate aim angle from movement direction."""
+    
+    # Use movement direction
+    dx = 0.0
+    dy = 0.0
+    if input.up:
+        dy -= 1.0
+    if input.down:
+        dy += 1.0
+    if input.left:
+        dx -= 1.0
+    if input.right:
+        dx += 1.0
+    
+    if dx == 0.0 and dy == 0.0:
+        # No movement - keep previous aim
+        return player.aim_angle
+    
+    return math.atan2(dy, dx)
+```
+
+## Input Frame Normalization
+
+For multiplayer, input frames are normalized to fixed player count:
+
+```python src/crimson/sim/input_frame.py
+class InputFrame(msgspec.Struct):
+    """Fixed-size input frame for deterministic replay."""
+    player_count: int
+    inputs: tuple[PlayerInput, PlayerInput, PlayerInput, PlayerInput]
+    
+    @classmethod
+    def from_list(
+        cls,
+        inputs: list[PlayerInput],
+        player_count: int,
+    ) -> InputFrame:
+        # Pad to 4 players
+        padded = list(inputs)
+        while len(padded) < 4:
+            padded.append(PlayerInput())
+        
+        return cls(
+            player_count=player_count,
+            inputs=tuple(padded[:4]),
+        )
+    
+    def as_list(self) -> list[PlayerInput]:
+        return list(self.inputs[:self.player_count])
+
+def normalize_input_frame(
+    inputs: list[PlayerInput] | None,
+    player_count: int,
+) -> InputFrame:
+    """Normalize inputs for fixed player count."""
+    if inputs is None:
+        inputs = [PlayerInput() for _ in range(player_count)]
+    return InputFrame.from_list(inputs, player_count)
+```
+
+<Note>
+  Input frames are always 4 players for deterministic replay, even in single-player. Unused slots have empty input.
+</Note>
+
+## Input Recording
+
+For replays, inputs are recorded each frame:
+
+```python src/crimson/replay/recorder.py
+class ReplayRecorder:
+    def record_frame(
+        self,
+        inputs: list[PlayerInput],
+    ) -> None:
+        """Record one frame of inputs."""
+        
+        # Normalize and encode
+        frame = InputFrame.from_list(
+            inputs,
+            player_count=self.player_count,
+        )
+        
+        encoded = encode_input_frame(frame)
+        self.frames.append(encoded)
+```
+
+## Multiplayer Input
+
+### Local Multiplayer
+
+```python
+def collect_local_multiplayer_inputs(
+    player_configs: list[PlayerConfig],
+) -> list[PlayerInput]:
+    """Collect inputs for all local players."""
+    
+    inputs = []
+    for i, config in enumerate(player_configs):
+        if config.input_type == InputType.KEYBOARD_MOUSE:
+            input = collect_keyboard_mouse_input(config)
+        elif config.input_type == InputType.GAMEPAD:
+            input = collect_gamepad_input(i, config)
+        else:
+            input = PlayerInput()
+        
+        inputs.append(input)
+    
+    return inputs
+```
+
+### Online Multiplayer
+
+Online inputs use lockstep or rollback:
+
+```python src/crimson/net/rollback.py
+def collect_network_inputs(
+    local_input: PlayerInput,
+    remote_inputs: dict[int, PlayerInput],
+    player_count: int,
+) -> list[PlayerInput]:
+    """Collect inputs from local + network."""
+    
+    inputs = [PlayerInput() for _ in range(player_count)]
+    
+    # Local player
+    inputs[local_player_index] = local_input
+    
+    # Remote players
+    for player_index, input in remote_inputs.items():
+        inputs[player_index] = input
+    
+    return inputs
+```
+
+## Input Latency
+
+### Local Input
+
+Local input has no intentional latency:
+
+```python
+input = collect_local_input()
+result = world.step(dt, inputs=[input])
+```
+
+### Network Input (Rollback)
+
+Rollback netcode adds input delay for stability:
+
+```python
+# Buffer local input
+input_buffer.add(current_frame, local_input)
+
+# Wait for remote inputs (with delay)
+simulate_frame = current_frame - INPUT_DELAY
+
+if has_all_inputs(simulate_frame):
+    inputs = get_inputs_for_frame(simulate_frame)
+    result = world.step(dt, inputs=inputs)
+```
+
+## Input Replay
+
+Replays store and playback inputs:
+
+```python src/crimson/replay/codec.py
+def decode_replay_inputs(
+    replay: Replay,
+) -> list[InputFrame]:
+    """Decode all inputs from replay."""
+    
+    frames = []
+    for encoded_frame in replay.input_frames:
+        frame = decode_input_frame(encoded_frame)
+        frames.append(frame)
+    
+    return frames
+
+# Playback
+for tick_index, input_frame in enumerate(replay_inputs):
+    result = world.step(
+        dt=FIXED_DT,
+        inputs=input_frame.as_list(),
+    )
+```
+
+## Configuration
+
+Input bindings are stored in `crimson.cfg`:
+
+```python src/grim/config.py
+class PlayerConfig(msgspec.Struct):
+    input_type: InputType
+    
+    # Keyboard bindings
+    key_up: int = rl.KEY_W
+    key_down: int = rl.KEY_S
+    key_left: int = rl.KEY_A
+    key_right: int = rl.KEY_D
+    key_reload: int = rl.KEY_R
+    key_fire: int = rl.MOUSE_LEFT_BUTTON
+    
+    # Gamepad bindings
+    gamepad_id: int = 0
+    
+    # Aim scheme
+    aim_scheme: AimScheme = AimScheme.MOUSE
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Gameplay System" icon="crosshairs" href="/rewrite/systems/gameplay">
+    How inputs affect gameplay
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    How inputs are recorded
+  </Card>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    How inputs flow through simulation
+  </Card>
+  <Card title="Crimson Module" icon="gamepad" href="/rewrite/modules/crimson">
+    Game logic overview
+  </Card>
+</CardGroup>

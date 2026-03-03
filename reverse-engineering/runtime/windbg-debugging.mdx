@@ -1,0 +1,342 @@
+---
+title: WinDbg Debugging
+description: Using WinDbg/CDB for deep runtime inspection and memory analysis
+---
+
+This page documents the WinDbg-based debugging workflow for low-level inspection of the original Crimsonland binary.
+
+## Overview
+
+[WinDbg](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools) (Windows Debugger) provides:
+
+- **Breakpoints** with conditional expressions
+- **Memory dumps** of structs and pools
+- **Call stacks** with return addresses
+- **Register inspection** during function execution
+- **Single-stepping** through machine code
+
+**Use WinDbg when**:
+- Frida hooks are too slow or invasive
+- You need to inspect CPU registers or flags
+- Conditional breakpoints based on complex state
+- One-off deep dives into specific issues
+
+## Setup
+
+### Remote Server Workflow
+
+Run WinDbg as a persistent server:
+
+```powershell
+# Server (long-lived, logs to file)
+cdb -server tcp:port=5555 -logo C:\Crimsonland\windbg.log -g crimsonland.exe
+```
+
+**Client** (short reconnects):
+```powershell
+cdb -remote tcp:server=localhost,port=5555 -bonc
+```
+
+**Notes**:
+- `-bonc` = break on next command (must type `g` to continue)
+- Server log persists; client output is ephemeral
+- Use `just windbg-tail` to read new log lines
+
+### Just Shortcuts
+
+```bash
+# Windows VM:
+just windbg-server  # Start persistent server
+just windbg-client  # Connect client
+just windbg-tail    # Read new log lines
+```
+
+## Basic Commands
+
+### Breakpoints
+
+```
+bp 0x00420b90          ; Break at projectile_update
+bl                     ; List breakpoints
+bc *                   ; Clear all breakpoints
+g                      ; Go (continue execution)
+```
+
+### Memory Inspection
+
+```
+dd 0x004908d4          ; Display dwords (hex)
+df 0x004908d4          ; Display floats
+db 0x004908d4 L0x40    ; Display bytes (length 0x40)
+du 0x00471230          ; Display Unicode string
+da 0x00471230          ; Display ASCII string
+```
+
+### Registers
+
+```
+r                      ; Show all registers
+r eax                  ; Show EAX
+r eax=100              ; Set EAX to 100
+```
+
+### Call Stack
+
+```
+k                      ; Stack trace
+kb                     ; Stack trace with first 3 params
+kn                     ; Stack trace with frame numbers
+```
+
+## Inspection Patterns
+
+### Dumping a Struct
+
+```
+.printf "Projectile[0]:\n"
+db 0x004926b8 L0x40
+
+; Pretty-print specific fields:
+.printf "  active: %d\n", by(0x004926b8)
+.printf "  pos_x: %.2f\n", poi(0x004926b8+8)
+.printf "  pos_y: %.2f\n", poi(0x004926b8+0xc)
+.printf "  life_timer: %.2f\n", poi(0x004926b8+0x24)
+```
+
+**Output**:
+```
+Projectile[0]:
+  active: 1
+  pos_x: 432.50
+  pos_y: 300.00
+  life_timer: 0.35
+```
+
+### Conditional Breakpoint
+
+```
+; Break only when player health drops below 20
+bp 0x00425e50 ".if (poi(0x004908d4) < 20) {} .else {gc}"
+```
+
+**Explanation**:
+- `poi(addr)` = read pointer/dword at address
+- `.if/.else` = conditional execution
+- `gc` = go from conditional (continue without printing)
+
+### Watching for Changes
+
+```
+; Break when projectile[5].active changes
+ba w1 0x004926b8+5*0x40 "g"
+```
+
+**Flags**:
+- `ba` = break on access
+- `w1` = write, 1 byte
+- `r4` = read, 4 bytes
+- `e` = execute
+
+### Logging Loop Iterations
+
+```
+bp 0x00420c00 ".printf \"tick=%d proj[%d] type=%d\\n\", dwo(0x00480850), @ecx, poi(@ecx+0x20); g"
+```
+
+**Output** (to log file):
+```
+tick=347 proj[0] type=1
+tick=347 proj[2] type=6
+tick=347 proj[5] type=45
+```
+
+## Real-World Examples
+
+### Example 1: Fire Bullets Override
+
+**Goal**: Confirm that Fire Bullets bonus forces projectile type to `0x2d`.
+
+```
+; Break at projectile_spawn with params
+bp 0x00420440
+
+; On break, inspect:
+; - Requested type (on stack)
+; - Fire Bullets timer
+; - Actual type written
+
+g
+; ... breakpoint hit ...
+
+; Show stack params
+kb
+
+; Check Fire Bullets timer (player 0)
+df 0x00490bcc L1
+
+; Continue and check written type
+pt  ; Step to return
+dd @ecx+0x20 L1  ; type_id field
+```
+
+**Session log**:
+```
+Breakpoint 0 hit
+crimsonland+0x20440:
+  ret addr: 0x004136f2
+  param[2] (type_id): 0x00000001  ; Requested pistol
+
+Fire Bullets timer: 8.5
+
+After spawn:
+  type_id: 0x0000002d  ; Forced to fire projectile
+```
+
+### Example 2: Damage Calculation
+
+**Goal**: Trace damage calculation with perk multipliers.
+
+```
+; Break at creature_apply_damage
+bp 0x004207c0 ".printf \"apply_damage: idx=%d dmg=%.2f\\n\", @ecx, dwo(@esp+4); .echo; g"
+
+; Break before health update
+bp 0x004207e5 ".printf \"  health: %.2f -> %.2f\\n\", poi(@eax+0x10), poi(@eax+0x10)-dwo(@esp+4); g"
+```
+
+**Output**:
+```
+apply_damage: idx=3 dmg=15.00
+  health: 30.00 -> 15.00
+
+apply_damage: idx=3 dmg=15.00
+  health: 15.00 -> 0.00
+```
+
+### Example 3: RNG Divergence
+
+**Goal**: Find first RNG call difference between runs.
+
+```
+; Record RNG return values
+bp 0x00461746+0x0d ".printf \"rng: %d\\n\", @eax; g"
+
+; Compare two runs:
+; Run 1: rng calls [12345, 67890, 11111, ...]
+; Run 2: rng calls [12345, 67890, 22222, ...]  <- diverges at call 3
+```
+
+**Analysis**: Third call differs → find what function made it:
+
+```
+bp 0x00461746 ".if (poi(0x00480850) == 347) {k; g} .else {g}"
+```
+
+Prints stack when tick == 347 (divergence point).
+
+## Memory Layouts
+
+### Player Health Table
+
+```
+; Player 0 health
+df 0x004908d4
+
+; Player 0 position (negative offsets)
+df 0x004908d4-0x10  ; pos_x
+df 0x004908d4-0x0c  ; pos_y
+
+; Player 1 health (stride 0x360)
+df 0x004908d4+0x360
+```
+
+### Projectile Pool
+
+```
+; Dump first 5 entries (0x40 bytes each)
+.for (r $t0 = 0; @$t0 < 5; r $t0 = @$t0 + 1) {
+  .printf "Projectile[%d]:\n", @$t0
+  .printf "  active: %d\n", by(0x004926b8 + @$t0 * 0x40)
+  .printf "  type: %d\n", poi(0x004926b8 + @$t0 * 0x40 + 0x20)
+  .printf "  pos: (%.2f, %.2f)\n", poi(0x004926b8 + @$t0 * 0x40 + 8), poi(0x004926b8 + @$t0 * 0x40 + 0xc)
+}
+```
+
+### Config Blob
+
+```
+; Screen resolution
+dd 0x00480348+0x1bc L2  ; width, height
+
+; Keybinds (player 1)
+dd 0x00480348+0x1c8 L13  ; 13 keybind dwords
+
+; Volume settings
+df 0x00480348+0x464 L2  ; sfx_volume, music_volume
+```
+
+## Scripting
+
+### WinDbg Script File
+
+Create `capture_state.txt`:
+
+```
+.printf "=== State Snapshot ==="
+.printf "Tick: %d", dwo(0x00480850)
+.printf "Player health: %.2f", poi(0x004908d4)
+.printf "Active projectiles: "
+
+.for (r $t0 = 0; @$t0 < 0x60; r $t0 = @$t0 + 1) {
+  .if (by(0x004926b8 + @$t0 * 0x40) != 0) {
+    .printf "%d ", @$t0
+  }
+}
+
+.printf ""
+```
+
+Run:
+```
+$$<capture_state.txt
+```
+
+## Comparison with Frida
+
+| Feature | WinDbg | Frida |
+|---------|--------|-------|
+| **Speed** | Slower (pauses execution) | Faster (minimal overhead) |
+| **Precision** | Register-level | Function-level |
+| **Automation** | Script files, limited | Full JavaScript |
+| **Persistence** | Log files | JSONL output |
+| **Use case** | Deep dives, one-offs | Continuous capture |
+
+**Recommendation**: Use Frida for bulk capture, WinDbg for targeted investigation.
+
+## Common Pitfalls
+
+<Warning>
+  **Float display**: Use `df` or `poi()` for floats, not `dd` (shows hex representation).
+</Warning>
+
+<Warning>
+  **Pointer syntax**: `poi(addr)` reads 4 bytes as dword/pointer. For single byte, use `by(addr)`.
+</Warning>
+
+<Warning>
+  **Stride math**: Remember pool access is `base + idx * stride + offset`, not `base + idx + offset`.
+</Warning>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Frida Capture" href="/reverse-engineering/runtime/frida-capture">
+    Higher-level instrumentation for bulk capture
+  </Card>
+  <Card title="Struct Recovery" href="/reverse-engineering/static/struct-recovery">
+    Using memory dumps to validate struct layouts
+  </Card>
+  <Card title="Differential Testing" href="/reverse-engineering/runtime/differential-testing">
+    Comparing captured states between original and rewrite
+  </Card>
+</CardGroup>

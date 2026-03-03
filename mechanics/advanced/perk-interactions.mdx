@@ -1,0 +1,434 @@
+---
+title: Perk Interactions
+description: Synergies, conflicts, and complex perk combinations
+icon: diagram-project
+---
+
+# Perk Interactions
+
+Perks interact in complex ways - some synergize multiplicatively, others conflict or override each other. Understanding these interactions is critical for optimal builds.
+
+## Multiplicative Damage Stacking
+
+### Bullet Damage Perks
+
+From `src/crimson/creatures/damage.py:131-136`, bullet damage perks stack multiplicatively:
+
+```python
+# Applied in sequence:
+1. Uranium Filled Bullets: damage *= 2.0
+2. Living Fortress: damage *= (fortress_timer * 0.05 + 1.0)  # 1.0x to 2.5x
+3. Barrel Greaser: damage *= 1.4  
+4. Doctor: damage *= 1.2
+```
+
+**Maximum Stack**: 2.0 × 2.5 × 1.4 × 1.2 = **8.4x bullet damage**
+
+**Example - Plasma Rifle (5.0x weapon)**:
+```
+Base damage: ~332 (point-blank)
+With all perks: 332 * 8.4 = 2,788 damage per shot
+```
+
+**Applies To**: All bullet-type weapons (damage type 1)
+
+**Does NOT Apply To**: Fire weapons (Flamethrower), Ion weapons, special weapons
+
+### Fire Damage
+
+**Pyromaniac**: 1.5x multiplier to fire weapons
+
+**Applies To**: Flamethrower, Blow Torch, HR Flamer (ammo_class=1)
+
+**Does NOT Stack**: Fire weapons can't use Uranium/Barrel Greaser/Doctor/Living Fortress (bullet type only)
+
+### Ion Damage
+
+**Ion Gun Master**: 1.2x damage + 1.2x blast radius
+
+**Global Effect**: Any player's ion damage scaled (not just perk owner in co-op)
+
+**Applies To**: Ion Rifle, Ion Minigun, Ion Cannon, Ion Shotgun (ammo_class=4)
+
+## Reload Speed Stacking
+
+### Reload Perks
+
+**Fastloader**: reload_time × 0.7 (30% faster)
+
+**Stationary Reloader**: reload_time × 0.33 (3x faster when not moving)
+
+**Anxious Loader**: -0.05s per fire button press
+
+**Weapon Power Up Bonus**: reload_time × 0.5 (2x faster)
+
+### Stacking Examples
+
+**Fastloader + Stationary Reloader**:
+```
+Base reload: 2.0s
+Fastloader: 2.0 * 0.7 = 1.4s
+Stationary: 1.4 * 0.33 = 0.462s (77% faster than base!)
+```
+
+**Fastloader + Weapon Power Up**:
+```
+Base reload: 2.0s
+Fastloader: 2.0 * 0.7 = 1.4s
+Weapon Power Up: 1.4 * 0.5 = 0.7s
+```
+
+**All Reload Bonuses**:
+```
+Base reload: 2.0s
+Fastloader: 2.0 * 0.7 = 1.4s
+Stationary: 1.4 * 0.33 = 0.462s  
+Weapon Power Up: 0.462 * 0.5 = 0.231s
+Anxious Loader: 0.231 - (N * 0.05) where N = button presses
+```
+
+Can achieve sub-0.1s reloads with full stack!
+
+## Fire Rate Stacking
+
+### Fire Rate Modifiers
+
+**Fastshot**: shot_cooldown × 0.88 (12% faster)
+
+**Sharpshooter**: shot_cooldown × 1.05 (5% SLOWER - trade-off)
+
+**Weapon Power Up Bonus**: shot_cooldown × 0.5 (2x faster)
+
+### Stacking
+
+**Fastshot + Weapon Power Up**:
+```
+Base cooldown: 0.2s (5 shots/sec)
+Fastshot: 0.2 * 0.88 = 0.176s (5.68 shots/sec)
+Weapon Power Up: 0.176 * 0.5 = 0.088s (11.36 shots/sec)
+```
+
+**Fastshot + Sharpshooter** (anti-synergy):
+```
+Base cooldown: 0.2s
+Fastshot: 0.2 * 0.88 = 0.176s
+Sharpshooter: 0.176 * 1.05 = 0.185s
+Net result: Still faster than base, but less than Fastshot alone
+```
+
+Sharpshooter's accuracy benefit may outweigh the fire rate penalty.
+
+## Dodge Perks - Override Behavior
+
+### Dodger vs. Ninja
+
+**Dodger**: 20% dodge chance (1-in-5)
+
+**Ninja**: 33% dodge chance (1-in-3), requires Dodger
+
+**Interaction**: Ninja **overrides** Dodger completely
+
+From perk 40 description: "Overrides Dodger when both are owned"
+
+**You Get**:
+- Pick Dodger: 20% dodge
+- Pick Dodger then Ninja: 33% dodge (NOT 53% or 48%)
+
+**Why Pick Dodger?** It's a prerequisite for Ninja. You must have Dodger to get Ninja offered.
+
+## Regeneration Perks
+
+### Regeneration + Greater Regeneration
+
+**Regeneration**: 0.5 HP/sec average (50% chance per frame to heal +dt)
+
+**Greater Regeneration**: 2x heal amount when tick triggers (~1 HP/sec average)
+
+**Requires**: Regeneration (prerequisite)
+
+**Stacking**: Greater Regeneration modifies Regeneration's heal amount, doesn't add separate healing
+
+### Death Clock Clears Regeneration
+
+From perk 47:
+> "On pick, health is set to 100 and Regeneration / Greater Regeneration are cleared."
+
+**Effect**: Picking Death Clock **removes** both regen perks permanently
+
+**Blocked**: Death Clock active prevents Regeneration/Greater Regeneration from being offered
+
+## Poison Perks
+
+### Veins of Poison → Toxic Avenger
+
+**Veins of Poison**: Creatures that melee you get poisoned (60 damage/sec)
+
+**Toxic Avenger**: Upgrades poison to 180 damage/sec, requires Veins of Poison
+
+**Stacking**: Toxic Avenger **replaces** Veins of Poison's 60/sec with 180/sec (3x stronger)
+
+**Combined with Poison Bullets**: 
+- Poison Bullets: 12.5% chance to poison on projectile hit (60/sec or 180/sec)
+- Veins of Poison/Toxic Avenger: Guaranteed poison on melee contact
+
+**Both Active**: Enemies can be poisoned from bullets OR melee, both use same damage rate
+
+## Movement Speed Interactions
+
+### Speed Modifiers
+
+**Long Distance Runner**: Extends cap from 2.0 to 2.8 while running
+
+**Alternate Weapon**: -20% speed when perk active
+
+**Speed Bonus**: Temporary speed multiplier
+
+**Reflex Boosted**: Game time scale × 0.9 (affects effective speed)
+
+### Stacking
+
+**Long Distance Runner + Speed Bonus**:
+```
+Normal cap: 2.0
+Long Distance Runner cap: 2.8
+With Speed Bonus: Can exceed 2.8 temporarily
+```
+
+**Alternate Weapon Penalty**:
+```
+Base speed: 180 units/sec
+Alternate Weapon: 180 * 0.8 = 144 units/sec
+Long Distance Runner: Can still ramp to 2.8x cap (but of 144 base)
+```
+
+Alternate Weapon's penalty applies to base speed, then Long Distance Runner multiplies from that reduced base.
+
+## XP Gain Stacking
+
+### XP Multipliers
+
+**Bloody Mess / Quick Learner**: +30% XP from kills (1.3x)
+
+**Lean Mean Exp Machine**: +10 XP per 0.25s (passive generation)
+
+**Double Experience Bonus**: 2x XP multiplier (timed)
+
+**Instant Winner**: Immediate +2500 XP (stackable perk)
+
+**Grim Deal**: +18% of current XP total, then death
+
+### Stacking
+
+**Bloody Mess + Double Experience**:
+```
+Creature XP: 100
+Bloody Mess: 100 * 1.3 = 130
+Double Experience: 130 * 2 = 260 XP total
+```
+
+**Lean Mean Exp Machine Stacking**:
+```
+1 copy: 10 XP per 0.25s = 40 XP/sec
+2 copies: 20 XP per 0.25s = 80 XP/sec
+3 copies: 30 XP per 0.25s = 120 XP/sec
+```
+
+Linear stacking - each pick adds another +10 XP/tick.
+
+## Perk Expert + Perk Master
+
+**Perk Expert**: Selection pool 5 → 7 choices
+
+**Perk Master**: Requires Perk Expert, claims to "double" but also shows 7 choices
+
+**Actual Behavior** (from source analysis): Both add +2 to selection pool
+
+**You Get**:
+- Base: 5 choices
+- Perk Expert: 7 choices  
+- Perk Master: 7 choices (NOT 14)
+
+**Bug or Intended?** Description says "doubling" but implementation is +2. Likely description is wrong.
+
+## Ammunition Perks Conflict
+
+### Ammunition Within vs. Regression Bullets
+
+**Ammunition Within**: Fire during reload, costs HP
+
+**Regression Bullets**: Fire during reload, costs XP
+
+**Both Owned**: Regression Bullets takes priority (from perk 35 description)
+
+**Reload Restart**: Both perks prevent reloading mid-reload (must finish or deplete completely)
+
+## Trade-Off Perks
+
+### Instant HP Reduction
+
+**Thick Skinned**: HP → HP × 2/3, future damage × 2/3
+
+**Breathing Room**: HP → HP × 1/3, kills all on-screen enemies (no XP)
+
+**Infernal Contract**: HP → 0.1, grants +3 levels
+
+**Interaction**: These stack (can pick multiple)
+
+Example - Thick Skinned then Breathing Room:
+```
+Start: 100 HP
+Thick Skinned: 100 * 2/3 = 66 HP
+Breathing Room: 66 * 1/3 = 22 HP
+```
+
+Dangerous combo!
+
+### Death Clock Conflicts
+
+**Death Clock Active**: Blocks offering of:
+- Regeneration
+- Greater Regeneration
+- Thick Skinned
+- Highlander
+- Jinxed
+- Infernal Contract
+- MediKit spawns disabled
+
+**Reason**: These perks would interfere with the 30-second death timer mechanic
+
+## Co-op Perk Sharing
+
+In two-player mode:
+
+**Shared**: All perks apply to both players when either selects
+
+**Living Fortress Stacking**: Each player's fortress timer contributes multiplier
+```
+Player 1 timer: 20s → 2.0x multiplier
+Player 2 timer: 10s → 1.5x multiplier
+Combined bullet damage: base * 2.0 * 1.5 = 3.0x
+```
+
+**Pyromaniac Bug**: Original checks only player 1's weapon for offering condition (use --preserve-bugs)
+
+**Regeneration Bug**: Original only heals player 1 and repeats by player count (use --preserve-bugs)
+
+## Perk Availability Conflicts
+
+### Quest Mode Exclusions
+
+These perks **never appear** in quest mode:
+- Alternate Weapon (perk 9)
+- Grim Deal (perk 8)
+- Final Revenge (perk 19)
+- Highlander (perk 41)
+- Breathing Room (perk 46) - two-player only
+
+### Two-Player Exclusions
+
+These perks **never appear** in two-player:
+- Grim Deal (perk 8)
+- Fatal Lottery (perk 15)
+- Random Weapon (perk 16)
+- Final Revenge (perk 19)
+- Highlander (perk 41)
+
+### Conditional Suppressions
+
+**Plaguebearer**: Suppressed in hardcore quest 2.10
+
+**Poison Bullets**: Suppressed in hardcore quest 2.10
+
+**Veins of Poison**: Suppressed in hardcore quest 2.10
+
+**Pyromaniac**: Only offered when player has Flamethrower equipped
+
+## Optimal Synergy Builds
+
+### "Glass Cannon" Build
+
+**Goal**: Maximum damage output
+
+**Perks**:
+1. Uranium Filled Bullets (2x)
+2. Barrel Greaser (1.4x)
+3. Doctor (1.2x)
+4. Living Fortress (2.5x max)
+5. Fastshot (1.12x fire rate)
+6. Fastloader (0.7x reload)
+7. Ammo Maniac (+25% clip)
+
+**Result**: 8.4x bullet damage, 12% faster fire, 30% faster reload, 25% more ammo
+
+**Weapon**: Plasma Cannon (28x) → ~15,640 damage per shot
+
+**Weakness**: No defense perks, standing still required for max damage
+
+### "Unkillable Tank" Build
+
+**Goal**: Maximum survivability
+
+**Perks**:
+1. Dodger (20% dodge)
+2. Ninja (33% dodge, overrides Dodger)
+3. Regeneration (0.5 HP/sec)
+4. Greater Regeneration (1 HP/sec)
+5. Thick Skinned (damage × 2/3)
+6. Unstoppable (no knockback)
+7. Doctor (shows enemy HP)
+
+**Result**: 33% dodge, 1 HP/sec regen, 33% damage reduction, no knockback
+
+**Math**: 
+```
+Effective HP: 100 / (0.67 * 0.67) = 223 HP (dodge + thick skinned)
+Regen: 1 HP/sec = 60 HP/min sustain
+```
+
+**Weakness**: Lower damage output
+
+### "XP Farming" Build
+
+**Goal**: Maximum level gain
+
+**Perks**:
+1. Bloody Mess (1.3x kill XP)
+2. Lean Mean Exp Machine (40 XP/sec passive, stack 3x = 120 XP/sec)
+3. Perk Expert (more choices)
+4. Perk Master (more choices)
+5. Instant Winner (2500 XP repeatable)
+6. Bonus Magnet (more bonuses)
+
+**Result**: Fast leveling, many perk choices, frequent bonuses
+
+**Strategy**: Prioritize leveling over survival to snowball perk advantage
+
+### "Crowd Control" Build
+
+**Goal**: Area damage and control
+
+**Perks**:
+1. Radioactive (passive 100-unit aura)
+2. Plaguebearer (infection spread)
+3. Hot Tempered (periodic plasma ring)
+4. Angry Reloader (plasma ring on reload)
+5. Man Bomb (stand still 4s explosion)
+6. Pyromaniac (1.5x fire damage)
+
+**Weapon**: Flamethrower (synergy with Pyromaniac)
+
+**Result**: Constant passive damage from multiple sources
+
+**Gameplay**: Stand still to trigger Man Bomb, rotate slowly, enemies die from aura/plague/rings
+
+## Related Documentation
+
+- [Perks](/mechanics/combat/perks) - Individual perk descriptions
+- [Damage Calculations](/mechanics/combat/damage) - How multipliers stack
+- [Weapons](/mechanics/combat/weapons) - Weapon types affected by perks
+
+## Source Code References
+
+- `src/crimson/perks/ids.py` - Perk flags and availability
+- `src/crimson/perks/impl/` - Perk implementation details
+- `src/crimson/creatures/damage.py` - Damage modifier stacking order

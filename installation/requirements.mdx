@@ -1,0 +1,151 @@
+---
+title: System requirements
+description: Hardware and software requirements for running Crimsonland
+---
+
+Check that your system meets the requirements before installing Crimsonland.
+
+## Python version
+
+<Note>
+Crimsonland requires **Python 3.13 or higher**.
+</Note>
+
+Check your Python version:
+
+```bash
+python3 --version
+```
+
+If you need to install or upgrade Python:
+
+<Tabs>
+  <Tab title="Linux">
+    ```bash
+    # Ubuntu/Debian
+    sudo apt update
+    sudo apt install python3.13
+    
+    # Fedora
+    sudo dnf install python3.13
+    
+    # Arch
+    sudo pacman -S python
+    ```
+  </Tab>
+  
+  <Tab title="macOS">
+    ```bash
+    # Using Homebrew
+    brew install python@3.13
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    Download from [python.org](https://www.python.org/downloads/) or use:
+    ```powershell
+    # Using winget
+    winget install Python.Python.3.13
+    ```
+  </Tab>
+</Tabs>
+
+## Dependencies
+
+Crimsonland has the following runtime dependencies (automatically installed via PyPI):
+
+| Package | Version | Purpose |
+|---------|---------|----------|
+| `raylib` | ≥5.5.0.4 | Graphics and game engine |
+| `construct` | ≥2.10.70 | Binary parsing for PAQ/JAZ formats |
+| `msgspec` | ≥0.20.0 | Fast serialization for replays |
+| `pillow` | ≥12.1.0 | Image processing |
+| `platformdirs` | ≥4.5.1 | Cross-platform directory paths |
+| `structlog` | ≥25.1.0 | Structured logging |
+| `tqdm` | ≥4.67.3 | Progress bars |
+| `typer` | ≥0.21.1 | CLI framework |
+| `zstandard` | ≥0.25.0 | Compression |
+
+## Platform-specific requirements
+
+### Linux
+
+<Warning>
+**Wayland users**: Current PyPI raylib wheels are X11-oriented on x86_64. You may need `xwayland` and `libX11`.
+
+See [electronstudio/raylib-python-cffi#199](https://github.com/electronstudio/raylib-python-cffi/pull/199) for details.
+</Warning>
+
+Install X11 dependencies if needed:
+
+```bash
+# Ubuntu/Debian
+sudo apt install xwayland libx11-6
+
+# Fedora
+sudo dnf install xorg-x11-server-Xwayland libX11
+
+# Arch
+sudo pacman -S xorg-xwayland libx11
+```
+
+### macOS
+
+No additional dependencies required beyond Python 3.13+.
+
+### Windows
+
+No additional dependencies required beyond Python 3.13+.
+
+## Hardware requirements
+
+### Minimum
+
+- **CPU**: Any modern dual-core processor
+- **RAM**: 512 MB
+- **GPU**: OpenGL 3.3 compatible graphics card
+- **Storage**: 100 MB free space
+
+### Recommended
+
+- **CPU**: Quad-core processor or better
+- **RAM**: 2 GB
+- **GPU**: Dedicated graphics card with OpenGL 4.3+
+- **Storage**: 500 MB free space (for assets and replays)
+
+## Optional dependencies
+
+For chart rendering (optional, used by some analysis tools):
+
+```bash
+uv pip install crimsonland[charts]
+```
+
+This installs:
+- `altair` ≥6.0.0
+- `vl-convert-python` ≥1.9.0.post1
+
+## Development requirements
+
+If you're planning to contribute or run tests, see the [Install from source](/installation/from-source) guide for development dependencies.
+
+## Verification
+
+Once you've confirmed your system meets the requirements, proceed to installation:
+
+<CardGroup cols={2}>
+  <Card
+    title="Install from PyPI"
+    icon="box"
+    href="/installation/from-pypi"
+  >
+    Quick installation using uvx or pip
+  </Card>
+  <Card
+    title="Install from source"
+    icon="code"
+    href="/installation/from-source"
+  >
+    Development setup from GitHub
+  </Card>
+</CardGroup>

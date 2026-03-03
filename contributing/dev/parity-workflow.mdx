@@ -1,0 +1,376 @@
+---
+title: Parity Workflow
+description: The parity-first development approach for achieving behavioral accuracy
+---
+
+Crimsonland's development follows a **parity-first** methodology: every gameplay behavior must match the original 1.9.93 binary, proven with evidence.
+
+## Parity Workflow Overview
+
+The parity workflow has four phases:
+
+<Steps>
+  <Step title="Recover Structure and Intent">
+    Use static analysis (Ghidra, IDA, Binary Ninja) to understand the original code.
+    
+    **Source of truth:** `analysis/ghidra/maps/` contains authoritative name and type mappings.
+  </Step>
+  
+  <Step title="Validate Ambiguous Behavior">
+    Use runtime evidence (Frida, WinDbg) to clarify ambiguous decompilations.
+    
+    **Evidence location:** `analysis/frida/` contains capture artifacts and traces.
+  </Step>
+  
+  <Step title="Port Behavior">
+    Implement behavior in `src/` with deterministic simulation contracts.
+    
+    **Key requirement:** Maintain float32 precision and operation ordering.
+  </Step>
+  
+  <Step title="Verify Against Captures/Replays">
+    Use headless differential tools to compare rewrite behavior against original.
+    
+    **Verification tools:** Replay verification, capture comparison, deterministic tests.
+  </Step>
+</Steps>
+
+## Static Analysis
+
+Static analysis reveals structure, but not always exact behavior.
+
+### Ghidra Analysis
+
+**Authoritative decompiles** live in `analysis/ghidra/raw/`, regenerated from name/type maps:
+
+```bash
+just ghidra-exe   # Analyze crimsonland.exe
+just ghidra-grim  # Analyze grim.dll
+just ghidra-sync  # Sync changes
+```
+
+**Name and type maps** are the source of truth:
+
+- `analysis/ghidra/maps/name_map.json` - Function and variable names
+- `analysis/ghidra/maps/data_map.json` - Data structure layouts
+
+<Note>
+Never edit raw decompile files directly. Edit the maps, then regenerate.
+</Note>
+
+### Reading Decompiles
+
+Decompiles show **structure**, not exact behavior:
+
+```c
+// From analysis/ghidra/raw/crimsonland.exe_decompiled.c
+void creature_move(Creature *creature, float dt) {
+    float10 heading_rad = (float10)creature->heading;
+    float10 dx = fcos(heading_rad - 1.5707964);
+    float10 dy = fsin(heading_rad - 1.5707964);
+    creature->move_dx = (float)(dx * creature->speed * dt);
+    creature->move_dy = (float)(dy * creature->speed * dt);
+}
+```
+
+Key observations:
+- `float10` indicates x87 extended precision intermediate values
+- Final values are spilled back to `float` (f32) storage
+- Constants like `1.5707964` (π/2) must be preserved exactly
+
+See [Float Parity Policy](/contributing/guidelines/float-parity) for detailed guidance.
+
+## Runtime Evidence
+
+When decompilation is ambiguous, use runtime evidence.
+
+### Frida Captures
+
+Frida instruments the running native binary to capture state:
+
+```bash
+# Windows only - attach Frida to running game
+just frida-attach
+
+# Capture gameplay state at checkpoints
+just frida-gameplay-state-capture
+
+# Differential capture (compare native vs rewrite)
+just frida-gameplay-diff-capture
+```
+
+**Capture artifacts** go to `$CRIMSON_FRIDA_DIR` (default: `C:\share\frida` on Windows).
+
+### Importing Captures
+
+On Linux/WSL, import captures from Windows:
+
+```bash
+just frida-copy-share    # Copy from share dir
+just frida-import-raw    # Import to analysis/frida/raw/
+just frida-reduce        # Generate summaries
+```
+
+### Differential Playbook
+
+Follow `docs/frida/differential-playbook.md` for capture-driven parity work:
+
+1. Record a deterministic gameplay session in the native binary
+2. Replay the same inputs through the rewrite's headless oracle
+3. Compare state checkpoints field-by-field
+4. Isolate the first sustained mismatch
+5. Fix the root cause
+6. Re-run verification
+
+## Porting Behavior
+
+Once behavior is understood, port it to the rewrite.
+
+### Deterministic Contracts
+
+All gameplay code must be **deterministic**:
+
+- Same seed → same RNG sequence
+- Same inputs → same outputs
+- No timing-dependent behavior
+- No floating randomness
+
+### Float32 Precision
+
+<Warning>
+Preserve native float32 behavior in deterministic gameplay paths.
+</Warning>
+
+```python
+import math
+
+def creature_move(creature, dt: float):
+    """Move creature based on heading and speed.
+    
+    Native behavior: x87 intermediate trig, f32 storage.
+    Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+    """
+    heading_rad = creature.heading
+    # Use native_math helpers that preserve f32 behavior
+    dx = native_math.cos_native(heading_rad - math.pi / 2)
+    dy = native_math.sin_native(heading_rad - math.pi / 2)
+    # Explicit f32 spill points
+    creature.move_dx = native_math.round_f32(dx * creature.speed * dt)
+    creature.move_dy = native_math.round_f32(dy * creature.speed * dt)
+```
+
+### Zig Native Math
+
+The Zig runtime provides canonical native-style math helpers:
+
+**Location:** `crimson-zig/src/runtime/native_math.zig`
+
+```zig
+// Canonical f32 constants (exact bit patterns)
+pub const pi: f32 = 3.1415927;
+pub const half_pi: f32 = 1.5707964;
+pub const tau: f32 = 6.2831855;
+
+// Native-style trig (uses sinl/cosl when available)
+pub fn sinNative(x: f32) f32;
+pub fn cosNative(x: f32) f32;
+pub fn atan2Native(y: f32, x: f32) f32;
+
+// Explicit f32 spill point
+pub fn roundF32(x: anytype) f32;
+
+// Angle helpers (encode native corner cases)
+pub fn wrapAngle0Tau(angle: f32) f32;
+pub fn headingFromDeltaNative(dx: f32, dy: f32) f32;
+```
+
+See [Float Parity Policy](/contributing/guidelines/float-parity) for implementation details.
+
+## Verification
+
+Verify parity using multiple evidence pathways.
+
+### Deterministic Tests
+
+Lock in discovered behavior with deterministic tests:
+
+```python
+import pytest
+
+def test_creature_movement_parity():
+    """Test creature movement matches native float32 behavior.
+    
+    Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+    Capture: analysis/frida/differential-sessions/session-19.md
+    """
+    creature = Creature(heading=1.5707964, speed=2.5)
+    creature.move(dt=0.016666668)  # 60 FPS
+    
+    # Native-verified values (tight tolerance for f32)
+    assert creature.move_dx == pytest.approx(0.0, abs=1e-7)
+    assert creature.move_dy == pytest.approx(0.041666668, rel=1e-6)
+```
+
+### Replay Verification
+
+Replays are **deterministic recordings** of gameplay sessions:
+
+```bash
+# List replays
+uv run crimson replay list
+
+# Verify replay produces expected outcome
+uv run crimson replay verify path/to/replay.msgpack
+
+# Compare replay output to checkpoint sidecar
+uv run crimson replay verify-checkpoints path/to/replay.msgpack
+```
+
+Replay files include:
+- Initial seed
+- Input sequence (keyboard/mouse)
+- Expected final state (score, wave, RNG checksum)
+
+### Capture Verification
+
+Compare rewrite behavior against Frida-captured native state:
+
+```bash
+# Generate differential report
+uv run scripts/frida_gameplay_diff_verify.py \
+  --capture analysis/frida/raw/gameplay_diff_capture.msgpack.zst \
+  --replay-seed 12345
+```
+
+The tool:
+1. Loads native state checkpoints from capture
+2. Runs rewrite with same seed/inputs
+3. Compares state field-by-field at each checkpoint
+4. Reports first sustained divergence
+
+## Parity Bug Investigation Workflow
+
+When parity diverges:
+
+<Steps>
+  <Step title="Reproduce">
+    Reproduce using the canonical capture/replay.
+    
+    ```bash
+    uv run crimson replay verify path/to/failing_replay.msgpack
+    ```
+  </Step>
+  
+  <Step title="Generate Report">
+    Generate divergence report and/or verify-capture.
+    
+    ```bash
+    uv run crimson replay verify-checkpoints path/to/failing_replay.msgpack
+    ```
+  </Step>
+  
+  <Step title="Isolate Mismatch">
+    Isolate the **first sustained mismatch** and identify the subsystem.
+    
+    Look for:
+    - First checkpoint where values diverge
+    - Subsystem responsible (movement, RNG, collision)
+    - Pattern of divergence (immediate, gradual, chaotic)
+  </Step>
+  
+  <Step title="Fix Root Cause">
+    Fix the **root cause** (not the symptom).
+    
+    Common root causes:
+    - Wrong float constant (normalized vs native)
+    - Wrong operation order (changes rounding)
+    - Wrong f32 spill point (too early/late)
+    - Misread decompile (wrong branch condition)
+  </Step>
+  
+  <Step title="Re-Run">
+    Re-run the **same** capture/replay and confirm the mismatch moves/disappears for the right reason.
+    
+    ```bash
+    uv run crimson replay verify path/to/failing_replay.msgpack
+    ```
+    
+    **Success patterns:**
+    - Mismatch disappears entirely
+    - Mismatch moves to later checkpoint (proves earlier fix)
+  </Step>
+  
+  <Step title="Add Regression Test">
+    Add a regression test that locks the discovered behavior.
+    
+    ```python
+    def test_creature_heading_tau_boundary():
+        """Regression test for creature heading wrap at tau boundary.
+        
+        Found in: docs/frida/differential-sessions/session-19.md
+        Capture: quest_1_8, first divergence at frame 7756
+        """
+        creature = Creature(heading=6.28)
+        creature.update_heading(delta=0.01)
+        assert creature.heading == pytest.approx(0.01, rel=1e-6)
+    ```
+  </Step>
+</Steps>
+
+## Differential Sessions
+
+Parity investigation sessions are documented in `docs/frida/differential-sessions/`:
+
+- `differential-playbook.md` - General methodology
+- `session-01.md` through `session-NN.md` - Specific investigation logs
+
+Each session documents:
+- Capture artifact SHA
+- Initial divergence point
+- Investigation process
+- Root cause analysis
+- Fix verification
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start with Evidence">
+    Don't guess behavior from decompiles alone. Use captures and replays to validate.
+  </Accordion>
+  
+  <Accordion title="Fix Root Causes, Not Symptoms">
+    Don't add "just in case" guards. Find why the divergence occurs.
+  </Accordion>
+  
+  <Accordion title="Document Evidence">
+    Link tests back to decompile lines and capture sessions.
+  </Accordion>
+  
+  <Accordion title="Preserve Native Math">
+    Keep float32 constants, operation ordering, and spill points as-is unless proven safe to change.
+  </Accordion>
+  
+  <Accordion title="One Subsystem at a Time">
+    Keep parity fixes focused. Don't mix unrelated changes.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Float Parity Policy" icon="calculator" href="/contributing/guidelines/float-parity">
+    Master float32 precision requirements
+  </Card>
+  
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Write deterministic parity tests
+  </Card>
+  
+  <Card title="Tooling Guide" icon="tools" href="/contributing/dev/tooling">
+    Explore analysis tools and scripts
+  </Card>
+  
+  <Card title="Verification Process" icon="check-double" href="/contributing/dev/verification">
+    Complete verification workflow
+  </Card>
+</CardGroup>

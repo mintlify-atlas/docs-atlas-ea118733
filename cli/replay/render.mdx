@@ -1,0 +1,429 @@
+---
+title: replay render
+description: Render replay to high-quality video with ffmpeg
+---
+
+Export a replay to 60fps MP4 video with in-game audio using ffmpeg.
+
+## Usage
+
+```bash
+crimson replay render <replay_file> [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="replay_file" type="Path" required>
+  Replay file path (`.crd`).
+  
+  If a filename is provided without path, also searches `base-dir/replays/`
+</ParamField>
+
+## Options
+
+<ParamField path="--out" type="Path">
+  Output video path.
+  
+  Default: `<replay>.render.mp4`
+  
+  Alias: `-o`
+</ParamField>
+
+<ParamField path="--width" type="int">
+  Render width in pixels.
+  
+  Default: Use value from `crimson.cfg`
+</ParamField>
+
+<ParamField path="--height" type="int">
+  Render height in pixels.
+  
+  Default: Use value from `crimson.cfg`
+</ParamField>
+
+<ParamField path="--fps" type="int" default="60">
+  Output video frame rate.
+  
+  Must be ≥ 1.
+</ParamField>
+
+<ParamField path="--max-ticks" type="int">
+  Stop after N ticks.
+  
+  Default: Full replay
+  
+  Useful for rendering highlights or testing.
+</ParamField>
+
+<ParamField path="--trace-rng" type="flag">
+  Enable replay RNG trace mode during simulation.
+</ParamField>
+
+<ParamField path="--ffmpeg-bin" type="Path">
+  ffmpeg executable path.
+  
+  Default: Discover from `PATH`
+</ParamField>
+
+<ParamField path="--crf" type="int" default="16">
+  ffmpeg quality factor (libx264).
+  
+  - Lower = higher quality
+  - Range: 0-51
+  - Recommended: 16-23
+  - Default: 16 (high quality)
+</ParamField>
+
+<ParamField path="--preset" type="string" default="slow">
+  ffmpeg libx264 encoding preset.
+  
+  Options:
+  - `ultrafast` — Fastest, largest file
+  - `superfast`
+  - `veryfast`
+  - `faster`
+  - `fast`
+  - `medium`
+  - `slow` — Default (good quality/size balance)
+  - `slower`
+  - `veryslow` — Slowest, smallest file
+</ParamField>
+
+<ParamField path="--pixel-format" type="string" default="yuv420p">
+  ffmpeg output pixel format.
+  
+  Default: `yuv420p` (widest compatibility)
+</ParamField>
+
+<ParamField path="--overwrite" type="flag">
+  Overwrite output if it already exists.
+  
+  Default: Fail if output exists
+</ParamField>
+
+<ParamField path="--audio" type="flag" default="true">
+  Include in-game audio in output video.
+  
+  Use `--mute-audio` to disable.
+</ParamField>
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files.
+  
+  Default: Per-user OS data directory
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+<ParamField path="--assets-dir" type="Path">
+  Assets root directory.
+  
+  Default: `base-dir`
+  
+  Missing .paq files are automatically downloaded.
+</ParamField>
+
+## Output
+
+### Progress Display
+
+```bash
+crimson replay render run.crd
+```
+
+Output:
+```
+replay video: 100%|██████████| 36000/36000 [02:15<00:00, 265.43tick/s, frames=36000]
+replay audio: 100%|██████████| 36000/36000 [00:45<00:00, 800.00tick/s]
+ok: output=run.render.mp4 frames=36000 fps=60 resolution=1024x768 ticks=36000 elapsed_ms=600000 score_xp=125000 kills=1200
+```
+
+### Success Message
+
+Reports:
+- Output path
+- Frame count
+- FPS
+- Resolution
+- Replay statistics
+
+## Examples
+
+### Basic Render
+
+```bash
+crimson replay render survival-run.crd
+# Creates: survival-run.render.mp4
+```
+
+### Custom Output Path
+
+```bash
+crimson replay render run.crd --out highlight.mp4
+```
+
+### High Quality 1080p
+
+```bash
+crimson replay render run.crd \
+  --width 1920 \
+  --height 1080 \
+  --crf 18 \
+  --preset slow
+```
+
+### Fast Preview
+
+```bash
+crimson replay render run.crd \
+  --crf 28 \
+  --preset ultrafast \
+  --max-ticks 6000  # First 100 seconds
+```
+
+### Mute Audio
+
+```bash
+crimson replay render run.crd --mute-audio
+```
+
+### Overwrite Existing
+
+```bash
+crimson replay render run.crd --overwrite
+```
+
+### Custom ffmpeg Binary
+
+```bash
+crimson replay render run.crd --ffmpeg-bin /usr/local/bin/ffmpeg
+```
+
+### 4K High Quality
+
+```bash
+crimson replay render run.crd \
+  --width 3840 \
+  --height 2160 \
+  --crf 20 \
+  --preset veryslow
+```
+
+## Encoding Quality
+
+### CRF Values
+
+<ParamField path="crf=0" type="lossless">
+  Mathematically lossless (huge file size).
+</ParamField>
+
+<ParamField path="crf=16" type="high quality">
+  Default. Near-perfect quality, reasonable size.
+</ParamField>
+
+<ParamField path="crf=20" type="good quality">
+  Excellent quality, smaller size.
+</ParamField>
+
+<ParamField path="crf=23" type="balanced">
+  ffmpeg default. Good quality/size balance.
+</ParamField>
+
+<ParamField path="crf=28" type="preview">
+  Lower quality, fast encoding.
+</ParamField>
+
+<ParamField path="crf=35+" type="low quality">
+  Visible artifacts, not recommended.
+</ParamField>
+
+### Preset Speed vs Quality
+
+| Preset | Encoding Speed | File Size | Quality |
+|--------|----------------|-----------|----------|
+| ultrafast | Very fast | Large | Lower |
+| fast | Fast | Medium | Good |
+| medium | Moderate | Medium | Good |
+| slow | Slow | Small | High |
+| veryslow | Very slow | Smallest | Highest |
+
+## Rendering Process
+
+1. **Simulation** — Headless simulation to pre-compute audio
+2. **Video Pass** — Render frames and pipe to ffmpeg
+3. **Audio Pass** — Encode audio stream
+4. **Muxing** — Combine video + audio into final MP4
+
+## Performance
+
+Rendering speed depends on:
+
+- Hardware (CPU, GPU)
+- Resolution
+- ffmpeg preset
+- Replay complexity
+
+Typical speeds:
+- `ultrafast`: 2-5x realtime
+- `slow`: 0.5-1x realtime
+- `veryslow`: 0.2-0.5x realtime
+
+Example: 10-minute replay at `slow` preset takes ~10-20 minutes.
+
+## Audio Rendering
+
+Audio includes:
+- Weapon sounds
+- Enemy sounds
+- Pickup sounds
+- Music (if enabled in game)
+- UI sounds
+
+Audio is synchronized frame-perfectly with video.
+
+### Disable Audio
+
+```bash
+crimson replay render run.crd --mute-audio
+# Video-only output
+```
+
+## Error Handling
+
+### File Not Found
+
+```bash
+crimson replay render missing.crd
+```
+
+Output:
+```
+replay file not found: ./missing.crd
+```
+
+Exit code: `1`
+
+### Output Exists
+
+```bash
+crimson replay render run.crd --out existing.mp4
+```
+
+Output:
+```
+replay render failed: output file exists: existing.mp4 (use --overwrite)
+```
+
+Exit code: `1`
+
+### ffmpeg Not Found
+
+```bash
+crimson replay render run.crd
+```
+
+Output:
+```
+replay render failed: ffmpeg not found in PATH
+```
+
+Exit code: `1`
+
+Install ffmpeg:
+
+```bash
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Windows
+winget install ffmpeg
+```
+
+## File Size
+
+Typical sizes for 10-minute 1080p replay:
+
+| CRF | Preset | Size |
+|-----|--------|------|
+| 16 | slow | ~400MB |
+| 20 | slow | ~250MB |
+| 23 | medium | ~180MB |
+| 28 | fast | ~100MB |
+
+Higher resolutions increase size proportionally.
+
+## Use Cases
+
+### YouTube Upload
+
+```bash
+crimson replay render run.crd \
+  --width 1920 \
+  --height 1080 \
+  --crf 18 \
+  --preset slow \
+  --out youtube-upload.mp4
+```
+
+### Speedrun Submission
+
+```bash
+crimson replay render speedrun.crd \
+  --crf 20 \
+  --preset slow \
+  --out proof.mp4
+```
+
+### Twitter/Social Media
+
+```bash
+crimson replay render highlight.crd \
+  --max-ticks 1800 \
+  --crf 23 \
+  --preset fast \
+  --out twitter.mp4
+```
+
+### Archival Quality
+
+```bash
+crimson replay render historic.crd \
+  --crf 0 \
+  --preset veryslow \
+  --out lossless-archive.mp4
+```
+
+## Dependencies
+
+Requires:
+- `ffmpeg` — Video encoding
+- `libx264` — H.264 codec (usually bundled with ffmpeg)
+
+Verify installation:
+
+```bash
+ffmpeg -version
+```
+
+## Pixel Format Compatibility
+
+Default `yuv420p` provides maximum compatibility:
+
+- Web browsers
+- Mobile devices
+- Video platforms (YouTube, Twitch)
+- Media players
+
+For HDR or advanced use cases, use `yuv444p` or `yuv420p10le`.
+
+## See Also
+
+- [replay play](/cli/replay/play) — Interactive playback
+- [replay benchmark](/cli/replay/benchmark) — Render telemetry
+- [replay verify](/cli/replay/verify) — Verify before rendering
+- [Replay System](/cli/replay/overview) — Overview

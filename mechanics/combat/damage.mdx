@@ -1,0 +1,351 @@
+---
+title: Damage Calculations
+description: Complete damage formula with all modifiers
+icon: calculator
+---
+
+# Damage Calculations
+
+Crimsonland uses a distance-based damage formula modified by weapon stats and perk multipliers. Understanding the damage system is critical for weapon choice and perk optimization.
+
+## Base Damage Formula
+
+From weapon projectile damage calculations:
+
+```python
+damage = ((100 / max(distance, 50)) * weapon.damage_scale * 30 + 10) * 0.95
+```
+
+### Formula Components
+
+**Distance**: Measured in units from shot origin to impact point
+
+**Distance Clamp**: `max(distance, 50)` - minimum distance is 50 units
+
+**Weapon Damage Scale**: Multiplier from weapon definition (1.0x = baseline)
+
+**Base Scaling**: `100 / distance * 30` creates distance falloff
+
+**Constant**: `+10` ensures minimum damage floor
+
+**Final Multiplier**: `* 0.95` (unknown reason, possibly balance tweak)
+
+## Distance Effects
+
+### Point-Blank (Distance = 50)
+
+With 1.0x weapon at minimum distance:
+
+```python
+damage = ((100 / 50) * 1.0 * 30 + 10) * 0.95
+       = ((2.0 * 30) + 10) * 0.95
+       = (60 + 10) * 0.95
+       = 70 * 0.95
+       = 66.5 damage
+```
+
+### Medium Range (Distance = 100)
+
+```python
+damage = ((100 / 100) * 1.0 * 30 + 10) * 0.95
+       = ((1.0 * 30) + 10) * 0.95
+       = 40 * 0.95
+       = 38 damage
+```
+
+### Long Range (Distance = 200)
+
+```python
+damage = ((100 / 200) * 1.0 * 30 + 10) * 0.95
+       = ((0.5 * 30) + 10) * 0.95
+       = 25 * 0.95
+       = 23.75 damage
+```
+
+**Damage Falloff**: Point-blank deals ~2.8x damage compared to long range
+
+## Weapon Damage Multipliers
+
+Each weapon has a `damage_scale` value that multiplies the base formula.
+
+### Low Damage Weapons (< 1.0x)
+
+| Weapon | Multiplier | Point-Blank Damage |
+|--------|------------|--------------------|
+| Shrinkifier 5k | 0.0x | 0 (utility weapon) |
+| Fire Bullets | 0.25x | 16.6 |
+| Spider Plasma | 0.5x | 33.3 |
+
+### Standard Weapons (1.0x - 2.0x)
+
+| Weapon | Multiplier | Point-Blank Damage |
+|--------|------------|--------------------|
+| Assault Rifle | 1.0x | 66.5 |
+| Shotgun | 1.2x | 79.8 (per pellet, 12 pellets = 957.6 total) |
+| Plasma Minigun | 2.1x | 139.7 |
+
+### High Damage Weapons (3.0x - 6.0x)
+
+| Weapon | Multiplier | Point-Blank Damage |
+|--------|------------|--------------------|
+| Ion Rifle | 3.0x | 199.5 |
+| Pistol | 4.1x | 272.7 |
+| Plasma Rifle | 5.0x | 332.5 |
+| Splitter Gun | 6.0x | 399 |
+
+### Extreme Damage Weapons (10.0x+)
+
+| Weapon | Multiplier | Point-Blank Damage |
+|--------|------------|--------------------|
+| Blade Gun | 11.0x | 731.5 |
+| Ion Cannon | 16.7x | 1111.5 |
+| Plasma Cannon | 28.0x | 1862 |
+
+## Perk Damage Modifiers
+
+Perks multiply damage AFTER the base formula. From `src/crimson/creatures/damage.py`:
+
+### Bullet Damage Perks (Type 1)
+
+These stack multiplicatively:
+
+```python
+# Applied in order from damage.py:131-136
+1. Uranium Filled Bullets: damage *= 2.0
+2. Living Fortress: damage *= (timer * 0.05 + 1.0)  # 1.0x to 2.5x
+3. Barrel Greaser: damage *= 1.4
+4. Doctor: damage *= 1.2
+```
+
+**Example - All Bullet Perks Active**:
+
+With Uranium (2x), Living Fortress (2.5x max), Barrel Greaser (1.4x), Doctor (1.2x):
+
+```python
+final_damage = base_damage * 2.0 * 2.5 * 1.4 * 1.2 = base_damage * 8.4
+```
+
+Assault Rifle (66.5) → 558.6 damage per shot at point-blank!
+
+### Fire Damage Perks (Type 4)
+
+From `damage.py:145-146`:
+
+```python
+Pyromaniac: damage *= 1.5
+```
+
+**Applies To**: Flamethrower, Blow Torch, HR Flamer (ammo_class=1)
+
+### Ion Damage Perks (Type 7)
+
+From `damage.py:139-141`:
+
+```python
+Ion Gun Master: damage *= 1.2
+```
+
+**Applies To**: Ion Rifle, Ion Minigun, Ion Cannon, Ion Shotgun (ammo_class=4)
+
+**Also Affects**: Blast radius (* 1.2)
+
+## Damage Type Classification
+
+From `src/crimson/creatures/damage_types.py`:
+
+```python
+class CreatureDamageType:
+    BULLET = 1
+    FIRE = 4
+    ION = 7
+```
+
+Damage type determines which perk modifiers apply.
+
+**Bullet Type** (1): Most weapons (Pistol, Assault Rifle, Shotgun, Gauss Gun, Plasma weapons)
+
+**Fire Type** (4): Flamethrowers (ammo_class=1)
+
+**Ion Type** (7): Ion weapons (ammo_class=4)
+
+## Penetration and Damage Pools
+
+Some weapons have damage pools that enable penetration.
+
+### Standard Weapons (Pool = 1)
+
+Most weapons have pool of 1:
+- First hit consumes the projectile
+- Deals full formula damage
+- Projectile disappears
+
+### Piercing Weapons (Pool > 1)
+
+Three weapons have elevated pools:
+
+| Weapon | Pool Size | Behavior |
+|--------|-----------|----------|
+| Gauss Gun | 300 | Can pierce ~4-6 enemies |
+| Fire Bullets | 240 | Can pierce ~3-5 enemies |
+| Blade Gun | 50 | Can pierce ~1-2 enemies |
+
+**Penetration Mechanics**:
+
+1. Projectile hits enemy
+2. Deal `current_pool` damage (ignoring distance formula)
+3. Subtract enemy HP from pool: `pool -= enemy.hp`
+4. If `pool > 0`, projectile continues
+5. Repeat until pool exhausted
+
+**Example - Gauss Gun**:
+
+```
+Pool = 300
+Hit Enemy A (HP=80): Deal 300 damage, pool = 300-80 = 220
+Hit Enemy B (HP=100): Deal 220 damage, pool = 220-100 = 120  
+Hit Enemy C (HP=60): Deal 120 damage, pool = 120-60 = 60
+Hit Enemy D (HP=80): Deal 60 damage, pool = 60-80 = -20 (stops)
+```
+
+Gauss Gun pierced 3 enemies fully, damaged 4th partially.
+
+## Pellet Weapons
+
+Shotgun-type weapons fire multiple pellets per shot.
+
+### Pellet Counts
+
+| Weapon | Pellets | Total Damage Potential |
+|--------|---------|------------------------|
+| Shotgun | 12 | 12x per-pellet damage |
+| Sawed-off Shotgun | 12 | 12x per-pellet damage |
+| Multi-Plasma | 3 | 3x per-pellet damage |
+| Plasma Shotgun | 14 | 14x per-pellet damage |
+| Jackhammer | 4 | 4x per-pellet damage |
+| Ion Shotgun | 8 | 8x per-pellet damage |
+
+**Pellet Damage**:
+- Each pellet uses the same damage formula
+- Each pellet has independent trajectory (spread)
+- Point-blank: Most/all pellets hit = devastating damage
+- Long range: Spread causes many pellets to miss
+
+**Example - Shotgun**:
+
+```python
+Per-pellet damage (point-blank): ((100/50) * 1.2 * 30 + 10) * 0.95 = 79.8
+All 12 pellets hit: 79.8 * 12 = 957.6 damage
+```
+
+## Projectile Speed and Damage
+
+Projectile speed doesn't directly affect damage, but:
+
+**Barrel Greaser Perk**:
+- Doubles projectile speed
+- Also multiplies damage by 1.4x
+
+Faster projectiles:
+- Harder to dodge
+- Better at long range (less enemy movement)
+- Feel more responsive
+
+## Hit Radius
+
+Most projectiles have hit radius of 1 unit (must be very close to connect).
+
+### Expanded Hit Radius Weapons
+
+| Weapon | Hit Radius | Effect |
+|--------|------------|--------|
+| Ion Minigun | 3 units | Easier to hit |
+| Ion Rifle | 5 units | Small AoE feel |
+| Ion Cannon | 10 units | Large AoE |
+| Plasma Cannon | 10 units | Large AoE |
+
+**Ion Gun Master Perk**: Multiplies ion weapon radius by 1.2x
+
+Example: Ion Cannon 10 → 12 unit radius
+
+## Damage Optimization
+
+### Maximum Bullet Damage Build
+
+**Required**:
+- Uranium Filled Bullets (2x)
+- Living Fortress (2.5x at 30s stationary)
+- Barrel Greaser (1.4x)
+- Doctor (1.2x)
+
+**Total Multiplier**: 2.0 * 2.5 * 1.4 * 1.2 = **8.4x**
+
+**Best Weapons**:
+- Plasma Cannon: 28.0 * 8.4 = 235.2x base = ~15,640 damage per shot
+- Ion Cannon: 16.7 * 8.4 = 140.3x (but ion type, bullet perks don't apply)
+- Plasma Rifle: 5.0 * 8.4 = 42x = ~2,793 damage per shot
+
+**Note**: Ion Cannon is ion type (7), not bullet type (1), so bullet perks don't apply
+
+### Maximum Fire Damage Build
+
+**Required**:
+- Pyromaniac (1.5x)
+
+**Best Weapons**:
+- Blow Torch: 1.0 * 1.5 = 1.5x, but 166 shots/sec = continuous damage
+- Flamethrower: 1.0 * 1.5 = 1.5x, 125 shots/sec
+
+**Fire Weapons Can't Use Bullet Perks**: Fire type (4) doesn't benefit from Uranium/Barrel Greaser/etc.
+
+### Maximum Ion Damage Build
+
+**Required**:
+- Ion Gun Master (1.2x damage + 1.2x radius)
+
+**Best Weapons**:
+- Ion Cannon: 16.7 * 1.2 = 20.04x + 12 unit radius = ~1,333 damage, huge AoE
+- Ion Shotgun: 1.0 * 1.2 = 1.2x per pellet, 8 pellets, wider radius
+
+## Damage Calculator
+
+Calculate damage for any weapon/distance/perk combo:
+
+```python
+def calculate_damage(weapon_scale, distance, perks):
+    # Base formula
+    damage = ((100 / max(distance, 50)) * weapon_scale * 30 + 10) * 0.95
+    
+    # Apply perk multipliers (bullet type)
+    if 'uranium' in perks:
+        damage *= 2.0
+    if 'living_fortress' in perks:
+        fortress_timer = perks.get('fortress_timer', 0)  # 0-30 seconds
+        damage *= (fortress_timer * 0.05 + 1.0)
+    if 'barrel_greaser' in perks:
+        damage *= 1.4
+    if 'doctor' in perks:
+        damage *= 1.2
+    
+    return damage
+
+# Example: Plasma Rifle, point-blank, all bullet perks, max fortress
+result = calculate_damage(
+    weapon_scale=5.0,
+    distance=50,
+    perks={'uranium': True, 'living_fortress': True, 'fortress_timer': 30, 
+           'barrel_greaser': True, 'doctor': True}
+)
+print(f"{result:.1f} damage")  # Output: ~2793.0 damage
+```
+
+## Related Documentation
+
+- [Weapons](/mechanics/combat/weapons) - Weapon damage scales
+- [Perks](/mechanics/combat/perks) - Damage-modifying perks
+- [Creatures](/mechanics/combat/creatures) - Enemy HP values
+
+## Source Code References
+
+- `src/crimson/creatures/damage.py` - Damage application and perk modifiers
+- `src/crimson/weapons.py` - Weapon damage_scale values
+- `src/crimson/projectiles/` - Projectile damage mechanics

@@ -1,0 +1,318 @@
+---
+title: Grim Module
+description: Engine layer - raylib wrapper, assets, rendering, and audio
+---
+
+The Grim module (`src/grim/`) is the engine/platform layer that provides raylib wrappers, asset loading, rendering primitives, audio, and configuration.
+
+## Package Structure
+
+```
+src/grim/
+  ├── app.py              # Window and main loop
+  ├── view.py             # View protocol
+  ├── assets.py           # Texture cache
+  ├── paq.py              # PAQ archive reader
+  ├── jaz.py              # JAZ texture decoder
+  ├── terrain_render.py  # Terrain rendering pipeline
+  ├── audio.py            # Audio state and playback
+  ├── music.py            # Music pack loader
+  ├── sfx.py              # Sound effects system
+  ├── sfx_map.py          # SFX key mapping
+  ├── config.py           # crimson.cfg persistence
+  ├── console.py          # Debug console
+  ├── input.py            # Input wrapper
+  ├── fonts/              # Font loaders
+  ├── geom.py             # Geometry primitives
+  ├── color.py            # Color helpers
+  ├── math.py             # Math utilities
+  └── rand.py             # RNG wrapper
+```
+
+## Core Subsystems
+
+### Window and Loop
+
+**Location:** `src/grim/app.py`
+
+Main loop implementation:
+
+```python src/grim/app.py
+def run_view(
+    view: View,
+    *,
+    width: int = 1280,
+    height: int = 720,
+    fps: int = 60,
+) -> None:
+    """Run a Raylib window with a pluggable view."""
+    rl.init_window(width, height, "Crimsonland")
+    rl.set_target_fps(fps)
+    
+    view.open()
+    
+    while not rl.window_should_close():
+        dt = rl.get_frame_time()
+        view.update(dt)
+        
+        rl.begin_drawing()
+        view.draw()
+        rl.end_drawing()
+    
+    view.close()
+    rl.close_window()
+```
+
+See [Game Loop](/rewrite/architecture/game-loop).
+
+### Asset System
+
+**Location:** `src/grim/assets.py`, `src/grim/paq.py`, `src/grim/jaz.py`
+
+Loads textures from PAQ archives:
+
+```python src/grim/assets.py
+class PaqTextureCache:
+    """Texture cache from PAQ archives."""
+    
+    def load_texture(
+        self,
+        path: str,
+    ) -> rl.Texture:
+        # Check cache
+        if path in self.cache:
+            return self.cache[path]
+        
+        # Load from PAQ
+        data = self.paq_reader.read_file(path)
+        
+        # Decode based on extension
+        if path.endswith('.jaz'):
+            image = decode_jaz(data)
+        elif path.endswith('.tga'):
+            image = decode_tga(data)
+        else:
+            image = rl.load_image_from_memory(data)
+        
+        texture = rl.load_texture_from_image(image)
+        self.cache[path] = texture
+        return texture
+```
+
+#### PAQ Archive Format
+
+```python src/grim/paq.py
+class PaqArchive:
+    """PAQ archive reader using Construct."""
+    
+    def read_file(self, path: str) -> bytes:
+        entry = self.entries[path]
+        self.file.seek(entry.offset)
+        return self.file.read(entry.size)
+```
+
+#### JAZ Texture Decoder
+
+```python src/grim/jaz.py
+def decode_jaz(data: bytes) -> rl.Image:
+    """Decode JAZ texture format to RGBA image."""
+    # JAZ is a custom format with RLE compression
+    # and color palette
+    ...
+```
+
+### Terrain Rendering
+
+**Location:** `src/grim/terrain_render.py`
+
+```python src/grim/terrain_render.py
+class GroundRenderer:
+    """Terrain rendering pipeline."""
+    
+    def render_to_target(
+        self,
+        *,
+        terrain_id: int,
+        scroll_u: float,
+        scroll_v: float,
+        width: int,
+        height: int,
+    ) -> rl.RenderTexture:
+        # Create render target
+        target = rl.load_render_texture(width, height)
+        
+        # Render tiled terrain
+        rl.begin_texture_mode(target)
+        self._tile_terrain(terrain_id, scroll_u, scroll_v)
+        rl.end_texture_mode()
+        
+        return target
+```
+
+See [Rendering System](/rewrite/systems/rendering).
+
+### Audio System
+
+**Location:** `src/grim/audio.py`, `src/grim/music.py`, `src/grim/sfx.py`
+
+```python src/grim/audio.py
+class AudioState(msgspec.Struct):
+    music: MusicState
+    sfx: SfxState
+    music_volume: float = 0.5
+    sfx_volume: float = 0.5
+
+def play_sfx(
+    audio: AudioState,
+    key: str,
+    *,
+    rng: random.Random | None = None,
+) -> None:
+    """Play sound effect with variant selection."""
+    sound = audio.sfx.sounds.get(key)
+    if sound is None:
+        return
+    
+    rl.set_sound_volume(sound, audio.sfx_volume)
+    rl.play_sound(sound)
+```
+
+See [Audio System](/rewrite/systems/audio).
+
+### Config System
+
+**Location:** `src/grim/config.py`
+
+`crimson.cfg` persistence:
+
+```python src/grim/config.py
+class CrimsonConfig(msgspec.Struct):
+    screen_width: int = 1280
+    screen_height: int = 720
+    music_volume: int = 50
+    sfx_volume: int = 50
+    mouse_sensitivity: int = 50
+    fx_detail: int = 3
+    
+    @classmethod
+    def load(cls, path: Path) -> CrimsonConfig:
+        # Load and parse crimson.cfg
+        ...
+    
+    def save(self, path: Path) -> None:
+        # Write crimson.cfg with checksum
+        ...
+```
+
+### Console
+
+**Location:** `src/grim/console.py`
+
+Debug console overlay:
+
+```python src/grim/console.py
+class Console:
+    """In-game debug console."""
+    
+    def toggle(self) -> None:
+        self.visible = not self.visible
+    
+    def execute(self, command: str) -> None:
+        # Parse and execute console command
+        ...
+```
+
+Commands:
+
+- `fps` — Show FPS counter
+- `noclip` — Disable collision
+- `god` — God mode
+- `spawn <creature>` — Spawn creature
+
+### Fonts
+
+**Location:** `src/grim/fonts/`
+
+Bitmap font loaders:
+
+```python src/grim/fonts/small.py
+class SmallFont:
+    """Small bitmap font (6x8)."""
+    
+    def draw_text(
+        self,
+        text: str,
+        pos: Vec2,
+        color: rl.Color = rl.WHITE,
+    ) -> None:
+        x = pos.x
+        for char in text:
+            glyph = self.glyphs.get(char)
+            if glyph:
+                rl.draw_texture_pro(...)
+                x += glyph.width
+```
+
+### Geometry
+
+**Location:** `src/grim/geom.py`
+
+```python src/grim/geom.py
+class Vec2(msgspec.Struct):
+    x: float
+    y: float
+    
+    def length(self) -> float:
+        return math.sqrt(self.x * self.x + self.y * self.y)
+    
+    def normalize(self) -> Vec2:
+        l = self.length()
+        if l == 0:
+            return Vec2(0, 0)
+        return Vec2(self.x / l, self.y / l)
+
+class Rect(msgspec.Struct):
+    x: float
+    y: float
+    width: float
+    height: float
+```
+
+## Design Principles
+
+<Note>
+  **Grim must not import Crimson.** Keep engine layer independent of game logic.
+</Note>
+
+1. Minimal raylib wrapper (expose what's needed)
+2. No game logic in Grim
+3. Prefer simple data structures
+4. Keep rendering separate from simulation
+
+## Import Policy
+
+```python
+# ✅ Good: Grim standalone
+from grim.assets import TextureCache
+from grim.geom import Vec2
+
+# ❌ Bad: Grim imports Crimson (not allowed)
+from crimson.gameplay import player_update
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Crimson Module" icon="gamepad" href="/rewrite/modules/crimson">
+    Game logic layer
+  </Card>
+  <Card title="Rendering System" icon="palette" href="/rewrite/systems/rendering">
+    Learn about rendering
+  </Card>
+  <Card title="Audio System" icon="volume-high" href="/rewrite/systems/audio">
+    Explore audio
+  </Card>
+  <Card title="Module Map" icon="diagram-project" href="/rewrite/architecture/module-map">
+    Full architecture
+  </Card>
+</CardGroup>

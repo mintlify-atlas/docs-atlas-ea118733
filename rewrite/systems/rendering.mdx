@@ -1,0 +1,441 @@
+---
+title: Rendering System
+description: Terrain, sprites, effects, and UI rendering with raylib
+---
+
+The rendering system handles all visual output: terrain, sprites (players/creatures/projectiles), visual effects, and UI overlays.
+
+## Architecture
+
+Rendering is split between engine and game layers:
+
+- **`src/grim/terrain_render.py`** — Terrain rendering pipeline
+- **`src/crimson/render/world/`** — World sprite rendering
+- **`src/crimson/render/projectile_draw/`** — Projectile-specific renderers
+- **`src/crimson/ui/hud.py`** — HUD overlay
+- **`src/crimson/frontend/`** — Menus and panels
+
+<Note>
+  Rendering is **strictly separated** from simulation. No gameplay state changes during `draw()`.
+</Note>
+
+## Render Pipeline
+
+```python
+def draw_frame():
+    rl.begin_drawing()
+    rl.clear_background(rl.BLACK)
+    
+    # 1. Terrain
+    draw_terrain()
+    
+    # 2. Sprites (back to front)
+    draw_bonuses()
+    draw_projectiles()
+    draw_creatures()
+    draw_players()
+    
+    # 3. Effects
+    draw_muzzle_flashes()
+    draw_particles()
+    
+    # 4. UI
+    draw_hud()
+    draw_perk_menu()
+    
+    rl.end_drawing()
+```
+
+## Terrain Rendering
+
+Terrain is rendered to a texture once, then drawn each frame:
+
+```python src/grim/terrain_render.py
+class GroundRenderer:
+    """Terrain rendering pipeline."""
+    
+    def render_to_target(
+        self,
+        *,
+        terrain_id: int,
+        scroll_u: float,
+        scroll_v: float,
+        width: int,
+        height: int,
+    ) -> rl.RenderTexture:
+        """Render terrain with UV scrolling."""
+        
+        # Create render target
+        target = rl.load_render_texture(width, height)
+        
+        rl.begin_texture_mode(target)
+        rl.clear_background(rl.BLACK)
+        
+        # Tile terrain texture
+        tex = self.terrain_textures[terrain_id]
+        for y in range(0, height, tex.height):
+            for x in range(0, width, tex.width):
+                rl.draw_texture(
+                    tex,
+                    x + int(scroll_u),
+                    y + int(scroll_v),
+                    rl.WHITE,
+                )
+        
+        rl.end_texture_mode()
+        return target
+```
+
+### Decal Baking
+
+Bullet impacts and blood decals are baked into the terrain:
+
+```python src/crimson/render/terrain_fx.py
+def bake_fx_queues(
+    terrain_rt: rl.RenderTexture,
+    fx_queue: FxQueue,
+    fx_queue_rotated: FxQueueRotated,
+    textures: FxQueueTextures,
+) -> None:
+    """Bake FX decals into terrain render target."""
+    
+    rl.begin_texture_mode(terrain_rt)
+    
+    # Non-rotated decals (blood splatters)
+    for fx in fx_queue.entries:
+        if not fx.active:
+            continue
+        
+        tex = textures.get_texture(fx.sprite_id)
+        rl.draw_texture(
+            tex,
+            int(fx.pos_x),
+            int(fx.pos_y),
+            rl.fade(rl.WHITE, fx.alpha),
+        )
+    
+    # Rotated decals (bullet streaks)
+    for fx in fx_queue_rotated.entries:
+        if not fx.active:
+            continue
+        
+        tex = textures.get_texture(fx.sprite_id)
+        rl.draw_texture_pro(
+            tex,
+            source_rect=rl.Rectangle(0, 0, tex.width, tex.height),
+            dest_rect=rl.Rectangle(fx.pos_x, fx.pos_y, tex.width, tex.height),
+            origin=rl.Vector2(tex.width / 2, tex.height / 2),
+            rotation=fx.angle_degrees,
+            tint=rl.fade(rl.WHITE, fx.alpha),
+        )
+    
+    rl.end_texture_mode()
+```
+
+## Sprite Rendering
+
+### World Renderer
+
+```python src/crimson/render/world/renderer.py
+class WorldRenderer:
+    """Renders all world sprites."""
+    
+    def draw(
+        self,
+        state: GameplayState,
+        players: list[PlayerState],
+        creatures: CreaturePool,
+        ground: GroundRenderer,
+    ) -> None:
+        # Draw terrain
+        rl.draw_texture(
+            ground.render_target.texture,
+            0, 0,
+            rl.WHITE,
+        )
+        
+        # Draw bonuses
+        for bonus in state.bonuses.active():
+            self.draw_bonus(bonus)
+        
+        # Draw projectiles
+        for proj in state.projectiles.main_pool.active():
+            self.draw_projectile(proj)
+        
+        # Draw creatures
+        for creature in creatures.active_creatures():
+            self.draw_creature(creature)
+        
+        # Draw players
+        for player in players:
+            if player.health > 0:
+                self.draw_player(player)
+```
+
+### Sprite Atlas
+
+Sprites use texture atlases for efficient rendering:
+
+```python src/crimson/atlas.py
+class SpriteAtlas:
+    """Texture atlas with named sprite regions."""
+    
+    def draw_sprite(
+        self,
+        sprite_id: str,
+        pos: Vec2,
+        *,
+        rotation: float = 0.0,
+        scale: float = 1.0,
+        tint: rl.Color = rl.WHITE,
+    ) -> None:
+        region = self.regions[sprite_id]
+        
+        rl.draw_texture_pro(
+            self.texture,
+            source=rl.Rectangle(
+                region.x,
+                region.y,
+                region.width,
+                region.height,
+            ),
+            dest=rl.Rectangle(
+                pos.x,
+                pos.y,
+                region.width * scale,
+                region.height * scale,
+            ),
+            origin=rl.Vector2(
+                region.width / 2,
+                region.height / 2,
+            ),
+            rotation=rotation,
+            tint=tint,
+        )
+```
+
+## Projectile Rendering
+
+Different projectile types use specialized renderers:
+
+```python src/crimson/render/projectile_draw/
+# Bullet trails
+def draw_bullet_trail(
+    proj: Projectile,
+    texture: rl.Texture,
+) -> None:
+    rl.draw_texture_pro(
+        texture,
+        source_rect=...,
+        dest_rect=rl.Rectangle(
+            proj.pos.x,
+            proj.pos.y,
+            proj.trail_length,
+            proj.trail_width,
+        ),
+        rotation=proj.angle * 180 / math.pi,
+        ...
+    )
+
+# Beam weapons (continuous)
+def draw_beam(
+    proj: Projectile,
+    texture: rl.Texture,
+) -> None:
+    # Draw beam from origin to current position
+    rl.draw_line_ex(
+        start=proj.origin,
+        end=proj.pos,
+        thickness=proj.beam_width,
+        color=proj.beam_color,
+    )
+```
+
+## HUD Rendering
+
+```python src/crimson/ui/hud.py
+def draw_hud(
+    state: GameplayState,
+    players: list[PlayerState],
+) -> None:
+    """Draw HUD overlay."""
+    
+    # Health bars
+    for i, player in enumerate(players):
+        draw_health_bar(
+            player.health,
+            pos=Vec2(10, 10 + i * 30),
+        )
+    
+    # Ammo counter
+    weapon = WEAPON_TABLE[players[0].weapon.weapon_id]
+    draw_text(
+        f"{players[0].weapon.ammo} / {weapon.ammo_count}",
+        pos=Vec2(10, screen_height - 30),
+    )
+    
+    # Score
+    draw_text(
+        f"Score: {state.score}",
+        pos=Vec2(screen_width - 150, 10),
+    )
+    
+    # Level
+    draw_text(
+        f"Level: {state.level}",
+        pos=Vec2(screen_width - 150, 40),
+    )
+```
+
+### Health Heart Icons
+
+```python
+def draw_health_bar(
+    health: float,
+    pos: Vec2,
+) -> None:
+    """Draw health as heart icons."""
+    
+    hearts = int(health / 10)  # Each heart = 10 HP
+    
+    for i in range(hearts):
+        draw_sprite(
+            "heart_full",
+            Vec2(pos.x + i * 16, pos.y),
+        )
+    
+    # Partial heart
+    remainder = health % 10
+    if remainder > 0:
+        draw_sprite(
+            f"heart_{int(remainder)}",
+            Vec2(pos.x + hearts * 16, pos.y),
+        )
+```
+
+## Camera System
+
+Simple camera for screen shake:
+
+```python src/crimson/camera.py
+def camera_shake_update(
+    camera: Vec2,
+    shake_timer: float,
+    dt: float,
+) -> Vec2:
+    """Update camera shake."""
+    
+    if shake_timer <= 0:
+        return Vec2(0, 0)
+    
+    # Random shake offset
+    magnitude = shake_timer * 5.0
+    return Vec2(
+        random.uniform(-magnitude, magnitude),
+        random.uniform(-magnitude, magnitude),
+    )
+```
+
+## Text Rendering
+
+```python src/grim/fonts/small.py
+def draw_text_small(
+    text: str,
+    pos: Vec2,
+    color: rl.Color = rl.WHITE,
+) -> None:
+    """Draw text using small bitmap font."""
+    
+    x = pos.x
+    for char in text:
+        if char == ' ':
+            x += 4
+            continue
+        
+        glyph = font.glyphs[char]
+        rl.draw_texture_pro(
+            font.texture,
+            source=glyph.source_rect,
+            dest=rl.Rectangle(x, pos.y, glyph.width, glyph.height),
+            ...
+        )
+        x += glyph.width
+```
+
+## RTX Mode
+
+Experimental RTX rendering mode:
+
+```python src/crimson/render/rtx/
+class RtxRenderMode(enum.Enum):
+    CLASSIC = 0  # Original sprite rendering
+    RTX = 1      # Enhanced lighting/shadows
+
+# Enhanced beam rendering with glow
+def draw_beam_rtx(
+    proj: Projectile,
+) -> None:
+    # Core beam
+    draw_beam_classic(proj)
+    
+    # Glow layers
+    for i in range(3):
+        alpha = 0.3 / (i + 1)
+        width = proj.beam_width * (1.5 + i * 0.5)
+        draw_beam_glow(proj, width, alpha)
+```
+
+## Performance
+
+### Batching
+
+Sprites from the same texture are batched:
+
+```python
+# Group by texture
+sprites_by_texture = defaultdict(list)
+for sprite in all_sprites:
+    sprites_by_texture[sprite.texture].append(sprite)
+
+# Draw batched
+for texture, sprites in sprites_by_texture.items():
+    rl.begin_texture_mode(texture)
+    for sprite in sprites:
+        draw_sprite_raw(sprite)
+    rl.end_texture_mode()
+```
+
+### Culling
+
+Off-screen sprites are culled:
+
+```python
+def is_on_screen(
+    pos: Vec2,
+    camera: Vec2,
+    screen_size: Vec2,
+) -> bool:
+    return (
+        pos.x >= camera.x - 32 and
+        pos.x <= camera.x + screen_size.x + 32 and
+        pos.y >= camera.y - 32 and
+        pos.y <= camera.y + screen_size.y + 32
+    )
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Audio System" icon="volume-high" href="/rewrite/systems/audio">
+    Explore audio routing
+  </Card>
+  <Card title="Input System" icon="keyboard" href="/rewrite/systems/input">
+    Learn about input handling
+  </Card>
+  <Card title="Grim Module" icon="engine" href="/rewrite/modules/grim">
+    Engine layer details
+  </Card>
+  <Card title="Gameplay System" icon="crosshairs" href="/rewrite/systems/gameplay">
+    Back to gameplay
+  </Card>
+</CardGroup>

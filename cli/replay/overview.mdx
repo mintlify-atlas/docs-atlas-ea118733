@@ -1,0 +1,276 @@
+---
+title: Replay System
+description: Record, verify, and analyze deterministic gameplay replays
+---
+
+The Crimsonland reimplementation features a complete deterministic replay system for recording, verifying, and analyzing gameplay sessions.
+
+## Overview
+
+Replays capture input events with frame-perfect timing, enabling:
+
+- **Verification** — Validate gameplay claims and scores
+- **Benchmarking** — Measure simulation performance
+- **Video Rendering** — Export to high-quality MP4
+- **Parity Testing** — Compare against original executable
+- **Timeline Analysis** — Extract gameplay events
+
+## Replay File Format
+
+Replays use the `.crd` (Crimsonland Replay Data) format:
+
+- Binary msgspec-encoded structure
+- Header with game mode, seed, settings
+- Frame-by-frame input events
+- Claimed final stats (score, kills, etc.)
+- SHA256 hash for integrity
+
+## Commands
+
+### List Replays
+
+```bash
+crimson replay list
+```
+
+Displays all replays under `base-dir/replays/` with metadata.
+
+[Learn more →](/cli/replay/list)
+
+### Play Replay
+
+```bash
+crimson replay play <file>
+```
+
+Play back a recorded replay with full rendering.
+
+[Learn more →](/cli/replay/play)
+
+### Verify Replay
+
+```bash
+crimson replay verify <file>
+```
+
+Headless simulation to verify score claims.
+
+[Learn more →](/cli/replay/verify)
+
+### Render to Video
+
+```bash
+crimson replay render <file>
+```
+
+Export replay to 60fps MP4 video with audio.
+
+[Learn more →](/cli/replay/render)
+
+### Benchmark Performance
+
+```bash
+crimson replay benchmark <file>
+```
+
+Measure simulation throughput (ticks per second).
+
+[Learn more →](/cli/replay/benchmark)
+
+### Extract Timeline
+
+```bash
+crimson replay info <file>
+```
+
+Extract gameplay event timeline (kills, perks, deaths).
+
+## Recording Replays
+
+Replays are automatically recorded during gameplay when using a seeded run:
+
+```bash
+crimson --seed 42
+# Play a session
+# Replay saved to base-dir/replays/
+```
+
+Replay files include:
+- Game mode and settings
+- RNG seed
+- Input events with tick timing
+- Final stats (score, kills, time)
+
+## Deterministic Simulation
+
+Replays rely on deterministic simulation contracts:
+
+1. **Identical RNG** — Same seed produces same random sequence
+2. **Float32 Parity** — Math operations match original executable
+3. **Frame-Perfect Input** — Events occur at exact tick indices
+4. **No External State** — Simulation depends only on seed + inputs
+
+This enables bit-for-bit reproducibility across platforms and game versions.
+
+## Verification Workflow
+
+### 1. Record Gameplay
+
+```bash
+crimson --seed 12345
+# Complete a survival run
+```
+
+### 2. Verify Score
+
+```bash
+crimson replay verify replays/survival-12345.crd
+```
+
+Output:
+```
+ok: ticks=36000 elapsed_ms=600000 score_xp=125000 kills=1200
+header_claim match=True
+```
+
+### 3. Export Timeline
+
+```bash
+crimson replay info replays/survival-12345.crd --format json > timeline.json
+```
+
+### 4. Render Video
+
+```bash
+crimson replay render replays/survival-12345.crd --out run.mp4
+```
+
+## Use Cases
+
+### Speedrun Verification
+
+Verify claimed times and scores:
+
+```bash
+crimson replay verify speedrun.crd --format json
+```
+
+### Performance Benchmarking
+
+Measure simulation throughput:
+
+```bash
+crimson replay benchmark long-run.crd --mode headless --runs 5
+```
+
+### Parity Testing
+
+Compare against original game using checkpoint verification:
+
+```bash
+crimson replay verify-checkpoints original.crd --checkpoints original.crd.chk
+```
+
+### Content Creation
+
+Render high-quality gameplay videos:
+
+```bash
+crimson replay render highlight.crd --fps 60 --crf 18 --preset slow
+```
+
+### Debugging
+
+Extract detailed event timeline:
+
+```bash
+crimson replay info bug-repro.crd --verbose --player-index 0
+```
+
+## Replay Storage
+
+Replays are stored in `base-dir/replays/`:
+
+```
+base-dir/replays/
+├── survival-2024-03-15-123456.crd
+├── quest-1.5-2024-03-15-130000.crd
+└── rush-2024-03-15-140000.crd
+```
+
+Filename format: `<mode>-<timestamp>.crd`
+
+## Advanced Features
+
+### Checkpoint Sidecars
+
+Store periodic state snapshots alongside replays:
+
+```
+replay.crd
+replay.crd.chk  # Checkpoint sidecar
+```
+
+Used for differential parity testing against original executable.
+
+### RNG Tracing
+
+Enable detailed RNG call tracing:
+
+```bash
+crimson replay verify replay.crd --trace-rng
+```
+
+Captures all RNG calls for debugging desync issues.
+
+### Partial Replay
+
+Simulate only first N ticks:
+
+```bash
+crimson replay verify replay.crd --max-ticks 10000
+```
+
+## Limitations
+
+- Replays are tied to game version (breaking changes invalidate old replays)
+- Multiplayer replays require network determinism (experimental)
+- Visual settings (RTX mode) don't affect simulation but change rendering
+
+## Replay Schema
+
+Replays use msgspec for fast serialization:
+
+```python
+class ReplayHeader(Struct):
+    game_version: str
+    game_mode_id: GameMode
+    tick_rate: int
+    rng_seed: int
+    player_count: int
+    quest_level: str
+    claimed_stats: ClaimedStats
+
+class Replay(Struct):
+    header: ReplayHeader
+    inputs: list[ReplayInputFrame]
+```
+
+See `crimson.replay.types` for full schema.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="List Replays" icon="list" href="/cli/replay/list">
+    Browse saved replays
+  </Card>
+  <Card title="Play Replay" icon="play" href="/cli/replay/play">
+    Watch replay playback
+  </Card>
+  <Card title="Verify Scores" icon="check" href="/cli/replay/verify">
+    Validate gameplay claims
+  </Card>
+  <Card title="Render Video" icon="video" href="/cli/replay/render">
+    Export to MP4
+  </Card>
+</CardGroup>

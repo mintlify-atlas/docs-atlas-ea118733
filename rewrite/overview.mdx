@@ -1,0 +1,178 @@
+---
+title: Rewrite Overview
+description: High-fidelity Python + raylib reimplementation of Crimsonland v1.9.93
+---
+
+The Crimsonland rewrite is a **behavioral parity** reimplementation of the classic 2003 Windows build (v1.9.93) in Python + raylib. The goal is to match the original game logic, timings, RNG sequences, float32 math precision, UI layout quirks, and gameplay rules as closely as practical.
+
+## Architecture
+
+The rewrite follows a clean two-package split:
+
+- **`src/crimson/`** — Game logic layer (modes, simulation, UI, persistence, data tables)
+- **`src/grim/`** — Engine/platform layer (raylib wrapper, assets, rendering, audio)
+
+This mirrors the original `grim.dll` vs `crimsonland.exe` boundary while staying idiomatic for Python.
+
+## Current State
+
+The rewrite is a **playable full game** with:
+
+- Complete boot flow (splash, company logos, main menu)
+- All game modes: Survival, Rush, Quests (tiers 1-5), Tutorial, Typ-o-Shooter
+- Full weapon/creature/perk content
+- Terrain/sprite/decal rendering
+- Music and gameplay SFX
+- Local multiplayer (2-4 players)
+- Online multiplayer with rollback netcode
+- Deterministic simulation supporting seeded runs and verifiable replays
+- Original game secrets and Easter eggs
+
+## Key Features
+
+### Deterministic Simulation
+
+The rewrite implements a fully deterministic gameplay pipeline that supports:
+
+- **Seeded runs** — Use `--seed N` for reproducible gameplay
+- **Replay recording** — All gameplay can be recorded to `.crd` files
+- **Headless verification** — Replays can be verified without rendering
+- **Differential testing** — Compare rewrite behavior against original exe captures
+
+### Float32 Parity
+
+The original game uses x87 FPU with 53-bit precision mode and float32 storage. The rewrite preserves:
+
+- Native float32 constants from decompilation
+- Operation ordering that affects rounding boundaries
+- Explicit float32 store/truncation points
+
+See [Float32 Parity Policy](/rewrite/parity/float-policy) for details.
+
+### Replay System
+
+The rewrite includes a comprehensive replay system:
+
+```bash
+# Record gameplay
+uv run crimson --seed 42  # automatically records
+
+# Play back replay
+uv run crimson replay play replay.crd
+
+# Verify replay headlessly
+uv run crimson replay verify replay.crd
+
+# Extract timeline for analysis
+uv run crimson replay info replay.crd --format json
+
+# Render to video
+uv run crimson replay render replay.crd --fps 60
+```
+
+## Module Organization
+
+The codebase is organized into logical subsystems:
+
+<CardGroup cols={2}>
+  <Card title="Crimson Module" icon="gamepad" href="/rewrite/modules/crimson">
+    Game logic, modes, and simulation
+  </Card>
+  <Card title="Grim Module" icon="engine" href="/rewrite/modules/grim">
+    Engine layer and platform services
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    Deterministic replay system
+  </Card>
+  <Card title="Perks Module" icon="sparkles" href="/rewrite/modules/perks">
+    Perk runtime architecture
+  </Card>
+</CardGroup>
+
+## Systems
+
+The rewrite implements four major systems:
+
+<CardGroup cols={2}>
+  <Card title="Gameplay System" icon="crosshairs" href="/rewrite/systems/gameplay">
+    Player movement, weapons, creatures, and combat
+  </Card>
+  <Card title="Rendering System" icon="palette" href="/rewrite/systems/rendering">
+    Terrain, sprites, effects, and UI
+  </Card>
+  <Card title="Audio System" icon="volume-high" href="/rewrite/systems/audio">
+    Music, SFX, and audio routing
+  </Card>
+  <Card title="Input System" icon="keyboard" href="/rewrite/systems/input">
+    Keyboard, mouse, gamepad, and multiplayer input
+  </Card>
+</CardGroup>
+
+## Parity Verification
+
+The project uses multiple strategies to verify parity:
+
+1. **Static analysis** — Ghidra decompilation as source of truth
+2. **Runtime evidence** — Frida/WinDbg captures of original behavior
+3. **Differential testing** — Headless comparison of state checkpoints
+4. **Fixture tests** — Known-good outputs from original exe
+
+See [Parity Status](/rewrite/parity/status) for current verification state.
+
+## Bug Fixes
+
+The rewrite fixes several bugs in the original game by default. These can be re-enabled with `--preserve-bugs` for parity testing:
+
+- Bonus drop suppression comparing `amount` to weapon ID
+- Greater Regeneration having no effect
+- Bandage applying a health multiplier instead of heal
+- Multiple co-op asymmetry bugs
+- Mini-Rocket Swarmers spread collapse
+
+See [Original Bugs Preserved](/rewrite/parity/original-bugs) for the complete list.
+
+## Tech Stack
+
+- **Python 3.13+** — Modern Python with type hints
+- **raylib (pyray)** — Cross-platform graphics and audio
+- **msgspec** — Fast serialization for replays and state
+- **Construct** — Binary format parsing (PAQ, JAZ)
+- **pytest** — 200+ tests covering gameplay and parity
+- **uv** — Fast Python package management
+
+## Quick Start
+
+```bash
+# Run the game
+uvx crimsonland@latest
+
+# Or from source
+gh repo clone banteg/crimson && cd crimson
+uv run crimson
+
+# With original assets
+uv run crimson --assets-dir path/to/game_dir
+
+# Deterministic run
+uv run crimson --seed 42
+
+# Re-enable original bugs
+uv run crimson --preserve-bugs
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/rewrite/architecture/module-map">
+    Explore the module structure
+  </Card>
+  <Card title="Game Loop" icon="rotate" href="/rewrite/architecture/game-loop">
+    Understand the frame pipeline
+  </Card>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    Learn about deterministic simulation
+  </Card>
+  <Card title="Parity Status" icon="check" href="/rewrite/parity/status">
+    Check current parity state
+  </Card>
+</CardGroup>

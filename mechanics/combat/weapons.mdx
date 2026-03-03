@@ -1,0 +1,509 @@
+---
+title: Weapons System
+description: Complete weapon stats, mechanics, and damage calculations
+icon: gun
+---
+
+# Weapons System
+
+Crimsonland features 53 unique weapons ranging from the humble Pistol to devastating secret weapons. Each weapon has distinct fire rate, reload time, damage multiplier, and projectile behavior.
+
+## Weapon Mechanics
+
+### Core Stats
+
+Every weapon is defined by these properties from `src/crimson/weapons.py:84-98`:
+
+```python
+class Weapon(msgspec.Struct, frozen=True):
+    weapon_id: WeaponId
+    name: str
+    ammo_class: int | None      # HUD ammo icon (0=bullet, 1=fire, 2=rocket, 4=ion)
+    clip_size: int               # Ammo capacity before reload
+    shot_cooldown: float         # Seconds between shots
+    reload_time: float           # Seconds to reload
+    spread_heat_inc: float       # Spread increase per shot
+    fire_sound: str             # Audio effect
+    reload_sound: str           # Reload audio
+    icon_index: int             # UI icon ID
+    flags: int | None           # Behavior flags
+    travel_budget: int          # Projectile collision steps
+    damage_scale: float         # Damage multiplier
+    pellet_count: int           # Projectiles per shot
+```
+
+### Fire Rate
+
+Fire rate is controlled by `shot_cooldown` - the minimum time between shots in seconds.
+
+**Cooldown Modifiers**:
+- Fastshot perk: ×0.88 (12% faster)
+- Sharpshooter perk: ×1.05 (5% slower)
+- Weapon Power Up bonus: ×0.5 (2x faster)
+- Alternate Weapon swap delay: +0.1s cooldown
+
+**Fastest Weapons**:
+- Blow Torch: 0.006s (166 shots/sec)
+- Flamethrower: 0.008s (125 shots/sec)
+- HR Flamer: 0.0085s (117 shots/sec)
+
+**Slowest Weapons**:
+- Mini-Rocket Swarmers: 1.8s
+- Ion Cannon: 1.0s
+- Evil Scythe: 1.0s
+
+### Reload System
+
+Reload time is the delay before the weapon is ready to fire after depleting the clip.
+
+**Reload Modifiers**:
+- Fastloader perk: ×0.7 (30% faster)
+- Stationary Reloader perk: ×0.33 (3x faster when not moving)
+- Weapon Power Up bonus: ×0.5 (2x faster)
+- Anxious Loader perk: -0.05s per fire button press
+
+**Special Cases**:
+- Pulse Gun: 0.1s reload (effectively continuous)
+- Mean Minigun: 4.0s reload (longest standard weapon)
+- Nuke Launcher: 8.0s reload (longest overall)
+
+**Reload Interruption**:
+- Ammunition Within: Fire during reload, costs HP
+- Regression Bullets: Fire during reload, costs XP
+- Both perks prevent reload restart mid-reload
+
+### Ammo Classes
+
+Weapons are categorized by ammo type, affecting HUD display and perk interactions:
+
+| Class | ID | Icon | Example Weapons |
+|-------|----|----- |------------------|
+| Bullet | 0 | Bullet | Pistol, Assault Rifle, Shotgun, Gauss Gun |
+| Fire | 1 | Flame | Flamethrower, Blow Torch, HR Flamer |
+| Rocket | 2 | Rocket | Rocket Launcher, Seeker Rockets |
+| Electric | 4 | Lightning | Ion Rifle, Ion Minigun, Ion Cannon |
+| None | None | Generic | Secret weapons, special weapons |
+
+**Perk Interactions**:
+- Pyromaniac: +50% damage to Fire weapons (ammo_class=1)
+- Ion Gun Master: +20% damage and radius to Electric weapons (ammo_class=4)
+
+### Spread and Accuracy
+
+Each shot increases `spread_heat`, which decays over time. Higher spread heat causes projectiles to deviate from aim direction.
+
+**Spread Heat Increase**: Each shot adds `spread_heat_inc` to current spread
+
+**Decay**: Spread heat decreases passively when not firing
+
+**Sharpshooter Perk**: Forces spread to near-zero, adds laser sight, but -5% fire rate
+
+**Lowest Spread** (most accurate):
+- Shrinkifier 5k: 0.04
+- Blade Gun: 0.04
+- Spider Plasma: 0.04
+
+**Highest Spread** (least accurate):
+- Ion Cannon: 0.68
+- Plasma Cannon: 0.6
+- Fastshot weapons: Varies
+
+## Damage System
+
+See [Damage Calculations](/mechanics/combat/damage) for complete damage formula documentation.
+
+**Quick Reference**:
+```python
+damage = ((100 / max(distance, 50)) * weapon.damage_scale * 30 + 10) * 0.95
+```
+
+## Complete Weapon List
+
+All 53 weapons in internal ID order, with stats from `src/crimson/weapons.py:100-773`.
+
+### Standard Weapons (IDs 1-33)
+
+<Accordion title="1. Pistol">
+**Stats**: Clip 12 · Damage 4.1x · Fire 0.712s · Reload 1.2s · Bullet
+
+Starting weapon. High per-shot damage (4.1x multiplier) but slow fire rate. The game actively helps you escape the Pistol by:
+- Increasing bonus drop rate by 50%
+- Forcing 75% of bonuses to be weapon pickups
+
+**When to Use**: Never, if you can help it. Upgrade ASAP.
+</Accordion>
+
+<Accordion title="2. Assault Rifle">
+**Stats**: Clip 25 · Damage 1.0x · Fire 0.117s · Reload 1.2s · Bullet
+
+Solid automatic weapon. Fast fire rate (8.5 shots/sec), good clip size, reasonable reload. The 1.0x damage is the baseline for all damage calculations.
+
+**Best For**: All-around combat, sustained DPS, medium range
+</Accordion>
+
+<Accordion title="3. Shotgun">
+**Stats**: Clip 12 · Damage 1.2x · Fire 0.85s · Reload 1.9s · 12 pellets · Bullet
+
+12 pellets per shot with 1.2x damage each. Devastating at close range (all pellets hit), but spread reduces effectiveness beyond ~100 units.
+
+**Best For**: Close-range crowd control, grouped enemies
+</Accordion>
+
+<Accordion title="4. Sawed-off Shotgun">
+**Stats**: Clip 12 · Damage 1.0x · Fire 0.87s · Reload 1.9s · 12 pellets · Bullet
+
+Wider spread than Shotgun, lower damage per pellet. Better for sweeping arcs, worse for focused damage.
+
+**Best For**: Very close range, when surrounded
+</Accordion>
+
+<Accordion title="5. Submachine Gun">
+**Stats**: Clip 30 · Damage 1.0x · Fire 0.088s · Reload 1.2s · Bullet
+
+Fastest bullet weapon (11.4 shots/sec). Large clip and quick reload make it excellent for sustained combat.
+
+**Best For**: Continuous fire, chasing down enemies, crowd control
+</Accordion>
+
+<Accordion title="6. Gauss Gun">
+**Stats**: Clip 6 · Damage 1.0x · Fire 0.6s · Reload 1.6s · Bullet · **Pool 300**
+
+Piercing weapon with 300 damage pool. Projectiles punch through enemies until pool depletes. Each hit deals current pool value as damage, then subtracts enemy HP from pool.
+
+**Best For**: Linear enemy formations, penetrating crowds
+</Accordion>
+
+<Accordion title="7. Mean Minigun">
+**Stats**: Clip 120 · Damage 1.0x · Fire 0.09s · Reload 4.0s · Bullet
+
+Massive 120-round clip dumps continuous fire. Movement speed reduced while firing. The 4-second reload is a significant vulnerability.
+
+**Best For**: Stationary defense, shredding hordes
+</Accordion>
+
+<Accordion title="8. Flamethrower">
+**Stats**: Clip 30 · Damage 1.0x · Fire 0.008s · Reload 2.0s · Fire
+
+Continuous particle stream (125 shots/sec). Drains 0.1 ammo per tick. Short range but extremely high damage density.
+
+**Best For**: Point-blank combat, melee range swarms
+</Accordion>
+
+<Accordion title="9. Plasma Rifle">
+**Stats**: Clip 20 · Damage 5.0x · Fire 0.291s · Reload 1.2s · Bullet
+
+High damage per shot (5x multiplier). Slower fire rate rewards accuracy over spray.
+
+**Best For**: Single-target damage, medium range precision
+</Accordion>
+
+<Accordion title="10. Multi-Plasma">
+**Stats**: Clip 8 · Damage 1.0x · Fire 0.621s · Reload 1.4s · 3 pellets · Bullet
+
+Fires 3 plasma bolts in a spread pattern. Wide coverage but slow rate of fire.
+
+**Best For**: Area coverage, medium-range groups
+</Accordion>
+
+<Accordion title="11. Plasma Minigun">
+**Stats**: Clip 30 · Damage 2.1x · Fire 0.11s · Reload 1.3s · Bullet
+
+Automatic plasma weapon. Fast fire (9 shots/sec) with good damage (2.1x). One of the best all-around weapons.
+
+**Best For**: Sustained high DPS, any range
+</Accordion>
+
+<Accordion title="12. Rocket Launcher">
+**Stats**: Clip 5 · Damage 1.0x · Fire 0.741s · Reload 1.2s · Rocket
+
+Fires explosive rockets with area damage. Dangerous at close range (self-damage possible).
+
+**Best For**: Groups, long range bombardment
+</Accordion>
+
+<Accordion title="13. Seeker Rockets">
+**Stats**: Clip 8 · Damage 1.0x · Fire 0.311s · Reload 1.2s · Rocket
+
+Homing rockets that track enemies. Faster fire than Rocket Launcher, smaller explosions.
+
+**Best For**: Fire-and-forget damage, evasive targets
+</Accordion>
+
+<Accordion title="14. Plasma Shotgun">
+**Stats**: Clip 8 · Damage 1.0x · Fire 0.48s · Reload 3.1s · 14 pellets · Bullet
+
+14 plasma pellets per shot. Devastating spread damage. Long reload (3.1s) is the trade-off.
+
+**Best For**: Close-range burst damage, crowd clearing
+</Accordion>
+
+<Accordion title="15. Blow Torch">
+**Stats**: Clip 30 · Damage 1.0x · Fire 0.006s · Reload 1.5s · Fire
+
+Faster than Flamethrower (166 shots/sec). Even shorter range. High risk, high reward.
+
+**Best For**: Extreme close range, berserker playstyle
+</Accordion>
+
+<Accordion title="16. HR Flamer">
+**Stats**: Clip 30 · Damage 1.0x · Fire 0.0085s · Reload 1.8s · Fire
+
+High-rate flamethrower variant (117 shots/sec). Between Flamethrower and Blow Torch in speed.
+
+**Best For**: Close combat, continuous damage output
+</Accordion>
+
+<Accordion title="17. Mini-Rocket Swarmers">
+**Stats**: Clip 5 · Damage 1.0x · Fire 1.8s · Reload 1.8s · Rocket
+
+Slowest fire rate in game (1.8s). Fires swarm of mini-rockets per shot.
+
+**Best For**: Stationary targets, area denial
+</Accordion>
+
+<Accordion title="18. Rocket Minigun">
+**Stats**: Clip 16 · Damage 1.0x · Fire 0.12s · Reload 1.8s · Rocket
+
+Rapid-fire rockets (8.3 shots/sec). Extremely dangerous up close. Devastating at range.
+
+**Best For**: Long-range spam, area control
+</Accordion>
+
+<Accordion title="19. Pulse Gun">
+**Stats**: Clip 16 · Damage 1.0x · Fire 0.1s · Reload 0.1s · Electric
+
+Nearly continuous fire (0.1s reload). Fast projectiles. The reload is so short it's barely noticeable.
+
+**Best For**: Constant pressure, fast-moving targets
+</Accordion>
+
+<Accordion title="20. Jackhammer">
+**Stats**: Clip 16 · Damage 1.0x · Fire 0.14s · Reload 3.0s · 4 pellets · Bullet
+
+Automatic shotgun. 4 pellets per shot at fast fire rate (7.1 shots/sec = 28.4 pellets/sec).
+
+**Best For**: Mobile shotgun play, sustained close combat
+</Accordion>
+
+<Accordion title="21. Ion Rifle">
+**Stats**: Clip 8 · Damage 3.0x · Fire 0.4s · Reload 1.35s · Electric
+
+Chain lightning weapon. High damage (3.0x) with area effect. Hit radius 5 units.
+
+**Best For**: Groups, chain damage, medium range
+</Accordion>
+
+<Accordion title="22. Ion Minigun">
+**Stats**: Clip 20 · Damage 1.4x · Fire 0.1s · Reload 1.8s · Electric
+
+Rapid ion weapon (10 shots/sec). Hit radius 3 units. Good sustained electric DPS.
+
+**Best For**: Continuous ion damage, tight groups
+</Accordion>
+
+<Accordion title="23. Ion Cannon">
+**Stats**: Clip 3 · Damage 16.7x · Fire 1.0s · Reload 3.0s · Electric
+
+Massive damage (16.7x multiplier). Hit radius 10 units. Only 3 shots before long reload.
+
+**Best For**: Boss enemies, extreme burst damage
+</Accordion>
+
+<Accordion title="24. Shrinkifier 5k">
+**Stats**: Clip 8 · Damage 0.0x · Fire 0.21s · Reload 1.22s · Bullet
+
+Zero damage (0.0x multiplier). Shrinks enemies instead. Utility weapon.
+
+**Best For**: Crowd control via size reduction
+</Accordion>
+
+<Accordion title="25. Blade Gun">
+**Stats**: Clip 6 · Damage 11.0x · Fire 0.35s · Reload 3.5s · Bullet · **Pool 50**
+
+High damage (11.0x) piercing weapon. Pool 50 allows penetrating ~4-5 enemies.
+
+**Best For**: Lined-up enemies, high single-target damage
+</Accordion>
+
+<Accordion title="26. Spider Plasma">
+**Stats**: Clip 5 · Damage 0.5x · Fire 0.2s · Reload 1.2s · Bullet
+
+Low damage (0.5x). Projectiles split into multiple shots. Novelty weapon.
+
+**Best For**: Experimentation, visual spectacle
+</Accordion>
+
+<Accordion title="27. Evil Scythe">
+**Stats**: Clip 3 · Damage 1.0x · Fire 1.0s · Reload 3.0s · Electric
+
+Special projectile behavior. Slow fire, small clip. Secret weapon.
+
+**Best For**: Style points
+</Accordion>
+
+<Accordion title="28. Plasma Cannon">
+**Stats**: Clip 3 · Damage 28.0x · Fire 0.9s · Reload 2.7s · Bullet
+
+Highest standard damage (28.0x multiplier). Hit radius 10 units. Only 3 shots.
+
+**Best For**: Instant deletion of tough enemies
+</Accordion>
+
+<Accordion title="29. Splitter Gun">
+**Stats**: Clip 6 · Damage 6.0x · Fire 0.7s · Reload 2.2s · Bullet
+
+Projectiles split on impact. 6.0x damage. Good all-rounder.
+
+**Best For**: Groups, area damage
+</Accordion>
+
+<Accordion title="30. Gauss Shotgun">
+**Stats**: Clip 4 · Damage 1.0x · Fire 1.05s · Reload 2.1s · Bullet · **Pool 300**
+
+Piercing shotgun using Gauss Gun penetration. Extremely powerful in corridors.
+
+**Best For**: Linear crowds, penetration damage
+</Accordion>
+
+<Accordion title="31. Ion Shotgun">
+**Stats**: Clip 10 · Damage 1.0x · Fire 0.85s · Reload 1.9s · 8 pellets · Electric
+
+8 ion pellets per shot. Chain lightning on each pellet. Devastating spread.
+
+**Best For**: Close range electric carnage
+</Accordion>
+
+<Accordion title="32. Flameburst">
+**Stats**: Clip 60 · Damage 1.0x · Fire 0.02s · Reload 3.0s · Electric
+
+Burst-fire weapon. Fast shots (50/sec). Electric ammo class despite fire name.
+
+**Best For**: Rapid burst damage
+</Accordion>
+
+<Accordion title="33. RayGun">
+**Stats**: Clip 12 · Damage 1.0x · Fire 0.7s · Reload 2.0s · Electric
+
+Standard electric weapon. Balanced stats.
+
+**Best For**: General electric weapon use
+</Accordion>
+
+### Secret Weapons (IDs 41-53)
+
+See [Secret Weapons](/mechanics/advanced/secret-weapons) for unlock conditions.
+
+<Accordion title="41. Plague Spreader Gun">
+**Stats**: Clip 5 · Damage 0.0x · Fire 0.2s · Reload 1.2s · No Ammo Class
+
+Spreads plague effect instead of dealing direct damage. Utility weapon.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="42. Bubblegun">
+**Stats**: Clip 15 · Damage 1.0x · Fire 0.161s · Reload 1.2s · No Ammo Class
+
+Fires bubble projectiles. Novelty weapon with standard damage.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="43. Rainbow Gun">
+**Stats**: Clip 10 · Damage 1.0x · Fire 0.2s · Reload 1.2s · No Ammo Class
+
+Colorful projectile effects. Standard damage.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="44. Grim Weapon">
+**Stats**: Clip 3 · Damage 1.0x · Fire 0.5s · Reload 1.2s · No Ammo Class
+
+Mystery weapon with special properties.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="45. Fire Bullets">
+**Stats**: Clip 112 · Damage 0.25x · Fire 0.14s · Reload 1.2s · Bullet · **Pool 240**
+
+Huge clip (112 rounds). Low damage (0.25x) but piercing pool of 240. Spray weapon.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="50. Transmutator">
+**Stats**: Clip 50 · Damage 1.0x · Fire 0.04s · Reload 5.0s · No Ammo Class
+
+Fast fire (25 shots/sec), large clip, long reload (5s). Transmutation effect.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="51. Blaster R-300">
+**Stats**: Clip 20 · Damage 1.0x · Fire 0.08s · Reload 2.0s · No Ammo Class
+
+Rapid blaster (12.5 shots/sec). Solid all-around secret weapon.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="52. Lightning Rifle">
+**Stats**: Clip 500 · Damage 1.0x · Fire 4.0s · Reload 8.0s · No Ammo Class
+
+Massive clip (500), extremely slow fire (4s), brutal reload (8s). Joke weapon.
+
+**Unlock**: Secret condition
+</Accordion>
+
+<Accordion title="53. Nuke Launcher">
+**Stats**: Clip 1 · Damage 1.0x · Fire 4.0s · Reload 8.0s · No Ammo Class
+
+Single-shot nuke. 4s between shots, 8s reload. Ultimate power weapon.
+
+**Unlock**: Secret condition
+</Accordion>
+
+## Weapon Selection Strategy
+
+### Early Game (0-5 min)
+
+**Priority**: Escape the Pistol
+
+**Good Pickups**:
+1. Submachine Gun - Best early DPS
+2. Assault Rifle - Reliable all-rounder  
+3. Shotgun - Close-range power
+
+### Mid Game (5-15 min)
+
+**Priority**: Increase damage per shot
+
+**Good Pickups**:
+1. Plasma Rifle - High damage
+2. Plasma Minigun - Fast + powerful
+3. Gauss Gun - Penetration
+
+### Late Game (15+ min)
+
+**Priority**: Area damage and penetration
+
+**Good Pickups**:
+1. Ion Cannon - Massive burst
+2. Plasma Cannon - Highest damage
+3. Rocket Minigun - Continuous explosions
+4. Plasma Shotgun - Spread devastation
+
+## Related Documentation
+
+- [Damage Calculations](/mechanics/combat/damage) - How weapon damage is calculated
+- [Perks](/mechanics/combat/perks) - Perks that modify weapons
+- [Bonuses](/mechanics/combat/bonuses) - Weapon and power-up bonuses
+- [Secret Weapons](/mechanics/advanced/secret-weapons) - Unlock conditions
+
+## Source Code References
+
+- `src/crimson/weapons.py` - Complete weapon definitions
+- `src/crimson/projectiles/types.py` - Projectile behavior
+- `src/crimson/weapon_usage.py` - Weapon firing logic

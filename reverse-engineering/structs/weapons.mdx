@@ -1,0 +1,240 @@
+---
+title: Weapon Structures
+description: Weapon table entries and player weapon state
+---
+
+This page documents weapon-related data structures: the static weapon table and per-player weapon state.
+
+## Weapon Table
+
+**Base**: `0x004d7a00` (`weapon_table`)  
+**Entry size**: `0x48` bytes (72 bytes)  
+**Count**: 54 weapons
+
+### Struct Layout
+
+```c
+typedef struct {
+    i32 ammo;               // +0x00
+    float reload_time;      // +0x04
+    i32 projectile_count;   // +0x08
+    float spread_angle;     // +0x0c
+    float base_damage;      // +0x10
+    float fire_rate;        // +0x14
+    i32 ammo_class;         // +0x18
+    float shot_cooldown;    // +0x1c
+    i32 projectile_type;    // +0x20
+    float speed_scale;      // +0x24
+    // ... more fields
+} weapon_entry_t;  // 0x48 bytes
+```
+
+### Key Fields
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x00 | ammo | i32 | Magazine size |
+| 0x04 | reload_time | float | Reload duration (seconds) |
+| 0x08 | projectile_count | i32 | Projectiles per shot (shotguns) |
+| 0x0c | spread_angle | float | Spread per shot (radians) |
+| 0x10 | base_damage | float | Damage per projectile |
+| 0x14 | fire_rate | float | Shots per second |
+| 0x18 | ammo_class | i32 | Ammo type (affects reload/effects) |
+| 0x1c | shot_cooldown | float | Time between shots |
+| 0x20 | projectile_type | i32 | Projectile pool type ID |
+
+## Weapon Examples
+
+### Pistol (Weapon ID 1)
+
+```c
+{
+    .ammo = 12,
+    .reload_time = 1.5,
+    .projectile_count = 1,
+    .spread_angle = 0.0,
+    .base_damage = 10.0,
+    .fire_rate = 8.0,
+    .ammo_class = 1,
+    .shot_cooldown = 0.125,
+    .projectile_type = 0x01
+}
+```
+
+### Shotgun (Weapon ID 3)
+
+```c
+{
+    .ammo = 8,
+    .reload_time = 2.0,
+    .projectile_count = 7,  // 7 pellets
+    .spread_angle = 0.15,   // Wide spread
+    .base_damage = 5.0,     // Per pellet
+    .fire_rate = 3.0,
+    .ammo_class = 2,
+    .shot_cooldown = 0.333,
+    .projectile_type = 0x03
+}
+```
+
+### Gauss Gun (Weapon ID 6)
+
+```c
+{
+    .ammo = 30,
+    .reload_time = 2.5,
+    .projectile_count = 1,
+    .spread_angle = 0.0,
+    .base_damage = 50.0,    // High damage
+    .fire_rate = 2.0,       // Slow
+    .ammo_class = 3,
+    .shot_cooldown = 0.5,
+    .projectile_type = 0x06 // Piercing beam
+}
+```
+
+## Player Weapon State
+
+Weapon state is embedded in the player struct:
+
+**Base**: `player_health + 0x29c` (within player pool)
+
+### Current Weapon
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x29c | weapon_id | i32 | Current weapon ID (1-54) |
+| 0x2a0 | clip_size | float | Magazine capacity (copied from table) |
+| 0x2a4 | reload_active | u8 | 1 if currently reloading |
+| 0x2a8 | ammo | float | Current ammo count |
+| 0x2ac | reload_timer | float | Reload countdown |
+| 0x2b0 | shot_cooldown | float | Fire rate cooldown |
+| 0x2b4 | reload_timer_max | float | Total reload duration |
+
+### Alt Weapon (Swap State)
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x2b8 | alt_weapon_id | i32 | Swapped-out weapon ID |
+| 0x2bc | alt_clip_size | float | Saved magazine size |
+| 0x2c0 | alt_reload_active | u8 | Saved reload flag |
+| 0x2c4 | alt_ammo | float | Saved ammo count |
+| 0x2c8 | alt_reload_timer | float | Saved reload timer |
+| 0x2cc | alt_shot_cooldown | float | Saved fire cooldown |
+| 0x2d0 | alt_reload_timer_max | float | Saved reload duration |
+
+**Usage**: When picking up a new weapon, current state is saved to `alt_*` fields.
+
+## Weapon Assignment
+
+The `weapon_assign_player` function copies table data to player state:
+
+```c
+void weapon_assign_player(int player_idx, int weapon_id) {
+    weapon_entry_t* entry = &weapon_table[weapon_id];
+    player_t* player = &player_pool[player_idx];
+    
+    // Copy static data
+    player->weapon_id = weapon_id;
+    player->clip_size = (float)entry->ammo;
+    player->ammo = (float)entry->ammo;
+    player->reload_timer_max = entry->reload_time;
+    player->shot_cooldown = entry->shot_cooldown;
+    
+    // Reset timers
+    player->reload_active = 0;
+    player->reload_timer = 0.0;
+}
+```
+
+## Weapon Fire Logic
+
+Key steps in `player_fire_weapon`:
+
+1. **Check cooldown**: `if (shot_cooldown > 0) return;`
+2. **Check ammo**: `if (ammo <= 0) start_reload();`
+3. **Spawn projectiles**: Loop `projectile_count` times with spread
+4. **Decrement ammo**: `ammo -= 1.0;`
+5. **Set cooldown**: `shot_cooldown = weapon_table[weapon_id].shot_cooldown;`
+6. **Trigger effects**: Muzzle flash, SFX
+
+## Weapon ID Map
+
+<Accordion title="Ballistic (1-7)">
+  - 0x01: Pistol
+  - 0x02: Assault Rifle
+  - 0x03: Shotgun
+  - 0x04: Sawed-off Shotgun
+  - 0x05: Submachine Gun
+  - 0x06: Gauss Gun
+  - 0x07: Mean Minigun
+</Accordion>
+
+<Accordion title="Energy (8-11, 15-17)">
+  - 0x08: Flamethrower
+  - 0x09: Plasma Rifle
+  - 0x0a: Multi-Plasma
+  - 0x0b: Plasma Minigun
+  - 0x0e: Plasma Shotgun
+  - 0x13: Pulse Gun
+  - 0x15: Ion Rifle
+  - 0x16: Ion Minigun
+  - 0x17: Ion Cannon
+</Accordion>
+
+<Accordion title="Explosive (12-14, 18, 28)">
+  - 0x0c: Rocket Launcher
+  - 0x0d: Seeker Rockets
+  - 0x11: Mini-Rocket Swarmers
+  - 0x12: Rocket Minigun
+  - 0x1c: Plasma Cannon
+</Accordion>
+
+<Accordion title="Special (24-43)">
+  - 0x18: Shrinkifier 5k
+  - 0x19: Blade Gun
+  - 0x1d: Splitter Gun
+  - 0x1e: Gauss Shotgun
+  - 0x1f: Ion Shotgun
+  - 0x29: Plague Spreader
+  - 0x2a: Bubblegun
+  - 0x2b: Rainbow Gun
+</Accordion>
+
+## Weapon Modifiers
+
+### Fire Bullets Bonus
+
+When `player_fire_bullets_timer > 0`, all projectiles are forced to type `0x2d` (fire):
+
+```c
+// In projectile_spawn:
+if (owner_id <= -100 && player_fire_bullets_timer[owner_id] > 0.0) {
+    type_id = 0x2d;  // Override to fire type
+}
+```
+
+### Perk Multipliers
+
+**Angry Reloader** (perk 50):  
+- On reload complete, spawn radial plasma burst
+
+**Fast Reloader** (perk 46):  
+- `reload_time *= 0.5`
+
+**Weapon Recharger** (perk 47):  
+- `shot_cooldown *= 0.75`
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Entity Structures" href="/reverse-engineering/structs/entities">
+    Projectile pool layout
+  </Card>
+  <Card title="Perk Structures" href="/reverse-engineering/structs/perks">
+    Weapon-modifying perks
+  </Card>
+  <Card title="Player Struct" href="/structs/player">
+    Complete player state documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,219 @@
+---
+title: Rush Mode
+description: Fast-paced arcade mode with weapon pickups
+icon: bolt
+---
+
+# Rush Mode
+
+Rush mode is a fast-paced arcade variant focused on quick kills and constant weapon swapping. No perks, no leveling—just pure shooting action with frequent weapon bonuses.
+
+## Mode ID
+
+**Game Mode**: `2` (`GameMode.RUSH`)
+
+From `src/crimson/game_modes.py:11`
+
+## Core Mechanics
+
+### No Perk System
+
+Rush mode completely disables the perk system. You never level up or select perks. This creates a pure weapon-skill experience without build complexity.
+
+### High Weapon Drop Rate
+
+Weapon bonuses drop extremely frequently—often every 3-5 kills. This encourages constantly experimenting with different weapons and adapting your tactics on the fly.
+
+### Score Multiplier
+
+Rush mode emphasizes score through a kill combo system:
+
+**Combo Mechanics**:
+- Each kill increments a combo counter
+- Combo multiplies score per kill
+- Combo resets after a few seconds without kills
+- Maintaining high combos requires aggressive play
+
+**Multiplier Scaling**:
+```
+Score = base_kill_score × (1 + combo_count × 0.1)
+```
+
+A 50-kill combo multiplies score by 6x.
+
+### Faster Pace
+
+Enemy spawn rates are accelerated compared to Survival. The action is constant with minimal downtime.
+
+## Weapon Rotation
+
+Since weapons change frequently, Rush rewards versatility over specialization.
+
+### Weapon Categories
+
+**Spray Weapons** (hold fire, sweep crowds):
+- Submachine Gun
+- Mean Minigun
+- Flamethrower
+- Plasma Minigun
+
+**Precision Weapons** (aimed shots, single targets):
+- Pistol
+- Plasma Rifle
+- Gauss Gun
+- Ion Rifle
+
+**Burst Weapons** (close-range devastation):
+- Shotgun
+- Sawed-off Shotgun
+- Plasma Shotgun
+- Jackhammer
+
+**Explosive Weapons** (area damage):
+- Rocket Launcher
+- Seeker Rockets
+- Rocket Minigun
+
+### Adaptation Strategy
+
+Successful Rush play requires instantly adapting tactics when weapons change:
+
+**Got a Shotgun?** → Push into crowds for maximum pellet hits
+
+**Got a Gauss Gun?** → Kite enemies into lines for penetration
+
+**Got a Minigun?** → Plant yourself and create a kill zone
+
+**Got a Plasma Rifle?** → Pick off high-value targets from distance
+
+## Scoring Strategy
+
+### Combo Maintenance
+
+The key to high scores is combo preservation:
+
+**Aggression**: Never stop killing. Even a 2-second gap resets your multiplier.
+
+**Target Priority**: Kill weak enemies to sustain combo, then burst down tough enemies during high multipliers.
+
+**Weapon Efficiency**: Use each weapon's optimal range to maximize kill rate.
+
+### Bonus Usage
+
+Power-up bonuses still appear:
+
+**Offensive Bonuses** (use immediately to sustain combo):
+- Fireblast: Instant kills around you
+- Energizer: Run through enemies
+- Nuke: Screen clear
+
+**Defensive Bonuses** (save for emergencies):
+- Shield: Absorb damage
+- Freeze: Pause enemies
+- MediKit: Heal damage
+
+**Multiplier Bonuses** (no direct combo benefit):
+- Double Experience: (Useless in Rush—no XP)
+- Weapon Power Up: Faster fire rate = more kills
+- Speed: Better positioning
+
+### Risk/Reward
+
+High scores require risky play:
+- Stay close to enemies for faster kills
+- Don't retreat to safety if it breaks combo
+- Gamble on weapon bonuses being good
+
+## Difficulty Scaling
+
+Like Survival, Rush features continuous difficulty increase:
+
+**Spawn Rate**: Accelerates over time
+**Enemy Mix**: Tougher creatures appear later
+**Density**: More simultaneous enemies
+
+However, without perks to offset scaling, Rush gets extremely hard after 5-10 minutes.
+
+## Differences from Survival
+
+| Feature | Rush Mode | Survival Mode |
+|---------|-----------|---------------|
+| Perks | None | 58 available |
+| Leveling | Disabled | Core mechanic |
+| Weapon Drops | Very frequent | Moderate |
+| Focus | Score combos | Survival time |
+| Difficulty Curve | Steep | Gradual |
+| Build Variety | None | High |
+
+## Tips for Rush Mode
+
+<Tip>
+**Learn Every Weapon**: You'll use them all. Know each weapon's fire rate, reload time, and optimal range.
+</Tip>
+
+<Tip>
+**Aggressive Movement**: Circle-strafe around enemy groups while firing. Standing still is death.
+</Tip>
+
+<Tip>
+**Reload Timing**: Reload during safe moments. Running out of ammo mid-fight breaks combos.
+</Tip>
+
+<Tip>
+**Bonus Chains**: Stack offensive bonuses (Energizer + Weapon Power Up + Fire Bullets) for huge combo bursts.
+</Tip>
+
+<Warning>
+Rush mode is significantly harder than Survival at equivalent timestamps due to lack of perks. Don't expect 30-minute runs.
+</Warning>
+
+## Weapon Preference Strategy
+
+Some weapons are objectively better in Rush:
+
+### S-Tier (Always Good)
+- Plasma Minigun: High DPS, good ammo economy
+- Submachine Gun: Fast, reliable, good clip
+- Plasma Shotgun: Devastating close range
+
+### A-Tier (Situationally Strong)
+- Gauss Gun: Excellent vs crowds if you can line shots
+- Rocket Launcher: Good area damage, risky at close range
+- Mean Minigun: Huge DPS but reload vulnerability
+
+### B-Tier (Workable)
+- Assault Rifle: Solid all-rounder
+- Shotgun: Good damage but spread issues
+- Plasma Rifle: Decent but slow fire rate
+
+### C-Tier (Swap ASAP)
+- Pistol: Too slow for Rush pace
+- Flamethrower: Range issues, unsafe
+- Blow Torch: Even worse Flamethrower
+
+## Competitive Rush
+
+Rush mode's score focus makes it ideal for leaderboards:
+
+**Leaderboard Metrics**:
+- High score
+- Longest combo
+- Survival time (secondary)
+
+**Top Player Strategies**:
+1. Maximize combo uptime (never drop below 20x)
+2. Learn spawn patterns to pre-position
+3. Min-max each weapon's DPS potential
+4. Save Nuke/Energizer for combo recovery
+
+## Related Documentation
+
+- [Weapons](/mechanics/combat/weapons) - Learn all weapon stats
+- [Bonuses](/mechanics/combat/bonuses) - Power-up effects
+- [Creatures](/mechanics/combat/creatures) - Enemy HP and behavior
+- [Survival Mode](/mechanics/modes/survival) - Comparison mode
+
+## Source Code References
+
+- `src/crimson/modes/rush_mode.py` - Rush mode implementation
+- `src/crimson/game_modes.py:11` - Mode ID definition

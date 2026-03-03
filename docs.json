@@ -1,122 +1,233 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Crimsonland",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#DC143C",
+    "light": "#FF6B6B",
+    "dark": "#8B0000"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/banteg/crimson"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/banteg/crimson"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Get Started",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Introduction",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Installation",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
-            ]
-          },
-          {
-            "group": "Writing content",
-            "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "installation/requirements",
+              "installation/from-pypi",
+              "installation/from-source",
+              "installation/runtime-configuration"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Game Mechanics",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Overview",
             "pages": [
-              "api-reference/introduction"
+              "mechanics/overview"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Game Modes",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "mechanics/modes/survival",
+              "mechanics/modes/quest",
+              "mechanics/modes/rush",
+              "mechanics/modes/tutorial",
+              "mechanics/modes/typ-o-shooter"
+            ]
+          },
+          {
+            "group": "Combat System",
+            "pages": [
+              "mechanics/combat/weapons",
+              "mechanics/combat/perks",
+              "mechanics/combat/creatures",
+              "mechanics/combat/bonuses",
+              "mechanics/combat/damage"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "mechanics/advanced/secret-weapons",
+              "mechanics/advanced/perk-interactions",
+              "mechanics/advanced/rng"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Rewrite",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "rewrite/overview",
+              "rewrite/architecture/module-map",
+              "rewrite/architecture/game-loop",
+              "rewrite/architecture/deterministic-pipeline"
+            ]
+          },
+          {
+            "group": "Core Systems",
+            "pages": [
+              "rewrite/systems/gameplay",
+              "rewrite/systems/rendering",
+              "rewrite/systems/audio",
+              "rewrite/systems/input"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "rewrite/modules/crimson",
+              "rewrite/modules/grim",
+              "rewrite/modules/replay",
+              "rewrite/modules/perks"
+            ]
+          },
+          {
+            "group": "Parity",
+            "pages": [
+              "rewrite/parity/status",
+              "rewrite/parity/float-policy",
+              "rewrite/parity/original-bugs"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reverse Engineering",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "reverse-engineering/overview",
+              "reverse-engineering/methodology"
+            ]
+          },
+          {
+            "group": "Static Analysis",
+            "pages": [
+              "reverse-engineering/static/ghidra-workflow",
+              "reverse-engineering/static/decompilation",
+              "reverse-engineering/static/struct-recovery"
+            ]
+          },
+          {
+            "group": "Runtime Analysis",
+            "pages": [
+              "reverse-engineering/runtime/frida-capture",
+              "reverse-engineering/runtime/windbg-debugging",
+              "reverse-engineering/runtime/differential-testing"
+            ]
+          },
+          {
+            "group": "File Formats",
+            "pages": [
+              "reverse-engineering/formats/paq-archives",
+              "reverse-engineering/formats/jaz-textures",
+              "reverse-engineering/formats/config-files",
+              "reverse-engineering/formats/save-files"
+            ]
+          },
+          {
+            "group": "Data Structures",
+            "pages": [
+              "reverse-engineering/structs/game-state",
+              "reverse-engineering/structs/entities",
+              "reverse-engineering/structs/weapons",
+              "reverse-engineering/structs/perks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/overview",
+              "cli/run",
+              "cli/extract",
+              "cli/config"
+            ]
+          },
+          {
+            "group": "Replay System",
+            "pages": [
+              "cli/replay/overview",
+              "cli/replay/list",
+              "cli/replay/play",
+              "cli/replay/verify",
+              "cli/replay/render",
+              "cli/replay/benchmark"
+            ]
+          },
+          {
+            "group": "Debug Views",
+            "pages": [
+              "cli/debug/view",
+              "cli/debug/quests"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Contributing",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "contributing/overview",
+              "contributing/setup",
+              "contributing/workflow"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "contributing/dev/testing",
+              "contributing/dev/verification",
+              "contributing/dev/parity-workflow",
+              "contributing/dev/tooling"
+            ]
+          },
+          {
+            "group": "Guidelines",
+            "pages": [
+              "contributing/guidelines/code-style",
+              "contributing/guidelines/float-parity",
+              "contributing/guidelines/commits"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

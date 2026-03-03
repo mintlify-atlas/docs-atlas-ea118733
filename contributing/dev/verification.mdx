@@ -1,0 +1,369 @@
+---
+title: Verification Process
+description: Complete verification workflow before committing changes
+---
+
+The Crimsonland project enforces strict verification requirements to ensure deterministic parity and code quality.
+
+## Required Pre-Commit Checks
+
+Before committing changes, you must verify your code passes all checks.
+
+### Quick Verification
+
+```bash
+just check
+```
+
+This runs the complete verification suite:
+
+<Steps>
+  <Step title="Linting">
+    ```bash
+    uv run ruff check .
+    ```
+    Fast linting for code quality issues.
+  </Step>
+  
+  <Step title="Import Validation">
+    ```bash
+    uv run lint-imports
+    ```
+    Enforces import contracts (e.g., `grim` must not import `crimson`).
+  </Step>
+  
+  <Step title="Type Checking">
+    ```bash
+    uv run ty check src tests
+    ```
+    Type validation using the `ty` type checker.
+  </Step>
+  
+  <Step title="Documentation Validation">
+    ```bash
+    uv run scripts/check_docs.py
+    ```
+    Validates documentation structure and links.
+  </Step>
+  
+  <Step title="Structural Code Scanning">
+    ```bash
+    sg scan
+    sg test
+    ```
+    ast-grep rules for enforcing code patterns.
+  </Step>
+  
+  <Step title="Test Suite">
+    ```bash
+    uv run pytest
+    ```
+    Full test suite (200+ tests).
+  </Step>
+  
+  <Step title="Zig Build & Tests (if applicable)">
+    ```bash
+    just check-zig
+    ```
+    Zig compilation and test suite.
+  </Step>
+</Steps>
+
+## Pre-Commit Hooks
+
+Automatically run verification checks on commit and push.
+
+### Installation
+
+```bash
+prek install -c prek.toml -t pre-commit -t pre-push
+```
+
+### Hook Stages
+
+<Tabs>
+  <Tab title="pre-commit (Fast)">
+    Runs on `git commit`, file-scoped fast checks:
+    
+    - `ruff check` (linting)
+    - `import-linter` (import contracts)
+    - `ty check` (type checking)
+    - `scripts/check_docs.py` (docs validation)
+    - `sg scan` (ast-grep)
+    - `ziglint` (Zig linting, if applicable)
+    
+    Manual run:
+    ```bash
+    prek run --stage pre-commit
+    ```
+  </Tab>
+  
+  <Tab title="pre-push (Heavy)">
+    Runs on `git push`, file-scoped heavy checks:
+    
+    - `pytest` (full test suite)
+    - `uv build` (build verification)
+    - `zig build test` (Zig tests, if applicable)
+    
+    Manual run:
+    ```bash
+    prek run --stage pre-push
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+ziglint behavior is configured in `crimson-zig/.ziglint.zon` (`Z024` disabled).
+</Note>
+
+## CI-Equivalent Local Runs
+
+Run the exact checks that CI will run:
+
+### Python/Docs/Tooling Changes
+
+For changes to `src/`, `tests/`, `docs/`, `tools/`:
+
+```bash
+just check && uv build
+```
+
+### Zig-Only Changes
+
+For changes to `crimson-zig/`:
+
+```bash
+just check-zig
+```
+
+This runs:
+
+```bash
+cd crimson-zig && zig build test --summary all
+cd crimson-zig && zig build -Doptimize=ReleaseFast
+cd crimson-zig && zig build wasm
+```
+
+### Mixed Changes
+
+For changes to both Python and Zig:
+
+```bash
+just check && uv build
+just check-zig
+```
+
+## Individual Verification Steps
+
+### Linting
+
+```bash
+# Run ruff linter
+uv run ruff check .
+
+# Auto-fix safe issues
+uv run ruff check --fix .
+
+# Show all issues (including fixed)
+uv run ruff check --fix --show-fixes .
+```
+
+Ruff configuration is in `pyproject.toml`:
+- Line length: 120
+- Enabled rules: B007, B017, B023, B904, COM812, I001, PGH003, PT017, RUF012, RUF100, S113, S607, TRY004, UP035
+- Ignored: E402
+
+### Import Contracts
+
+```bash
+# Validate import structure
+uv run lint-imports
+```
+
+Enforces contracts defined in `pyproject.toml`:
+
+<AccordionGroup>
+  <Accordion title="grim must not import crimson">
+    The engine layer (`grim`) must remain independent of game logic (`crimson`).
+  </Accordion>
+  
+  <Accordion title="Perk isolation">
+    Perk implementations and runtime must stay out of selection and availability logic.
+  </Accordion>
+  
+  <Accordion title="Selection/availability independence">
+    Selection and availability must not import perk implementations directly.
+  </Accordion>
+</AccordionGroup>
+
+### Type Checking
+
+```bash
+# Check source and tests
+uv run ty check src tests
+
+# Check only source
+uv run ty check src
+
+# Check only tests
+just ty-tests
+```
+
+### Documentation Validation
+
+```bash
+# Validate docs structure
+uv run scripts/check_docs.py
+
+# Build docs site
+just docs-build
+
+# Serve docs locally
+zensical serve
+```
+
+### AST-grep Scanning
+
+```bash
+# Run configured rules
+sg scan
+
+# Test ast-grep rules
+sg test
+
+# Apply fixes (example)
+sg run -p 'pattern' -r 'replacement' src -U
+```
+
+### Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+just test-cov
+
+# Run specific test file
+uv run pytest tests/test_gameplay.py
+```
+
+See [Testing Guide](/contributing/dev/testing) for detailed test instructions.
+
+## Build Verification
+
+```bash
+# Build Python package
+uv build
+
+# Build Zig (if applicable)
+cd crimson-zig && zig build
+```
+
+## Verification Failures
+
+### Linting Failures
+
+Most linting issues can be auto-fixed:
+
+```bash
+uv run ruff check --fix .
+```
+
+For issues that can't be auto-fixed, address them manually or use inline ignores sparingly:
+
+```python
+# Only when justified and documented
+from legacy_module import old_function  # noqa: F401
+```
+
+### Type Checking Failures
+
+<Warning>
+Do not cast to `Any` or use `.get()`/`getattr()` to dodge typing. Fix the schema/boundary/model instead.
+</Warning>
+
+Common fixes:
+- Add type annotations to function signatures
+- Use proper type guards for conditionals
+- Define typed dataclasses for structured data
+- Fix boundary parsing to return typed objects
+
+### Import Contract Violations
+
+If `lint-imports` fails:
+
+1. **Review the contract** - Is the import genuinely needed?
+2. **Restructure** - Can the dependency be inverted?
+3. **Extract interface** - Should there be a shared protocol?
+
+### Test Failures
+
+For test failures:
+
+1. **Read the failure message** - What assertion failed?
+2. **Check parity evidence** - Does this match native behavior?
+3. **Isolate the test** - Run it individually with `-v`
+4. **Debug** - Use `--pdb` to drop into debugger
+
+See [Testing Guide](/contributing/dev/testing) for debugging techniques.
+
+## Skipping Checks (Discouraged)
+
+<Warning>
+Skipping checks should be rare and justified. CI will still run all checks.
+</Warning>
+
+### Skip Pre-Commit Hook
+
+```bash
+# Only when absolutely necessary
+git commit --no-verify
+```
+
+### Skip Pre-Push Hook
+
+```bash
+# Only when absolutely necessary
+git push --no-verify
+```
+
+## Verification Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Run Checks Frequently" icon="rotate">
+    Run `just check` frequently during development, not just before committing.
+  </Card>
+  
+  <Card title="Fix Issues Immediately" icon="bolt">
+    Address verification failures as they arise, don't accumulate technical debt.
+  </Card>
+  
+  <Card title="Understand Failures" icon="brain">
+    Don't blindly fix verification failures. Understand why the check exists.
+  </Card>
+  
+  <Card title="Use Hooks" icon="link">
+    Install pre-commit and pre-push hooks to catch issues early.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Deep dive into testing practices
+  </Card>
+  
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Learn the parity-first development approach
+  </Card>
+  
+  <Card title="Code Style" icon="paintbrush" href="/contributing/guidelines/code-style">
+    Follow project coding standards
+  </Card>
+  
+  <Card title="Tooling Guide" icon="tools" href="/contributing/dev/tooling">
+    Explore development tools and scripts
+  </Card>
+</CardGroup>

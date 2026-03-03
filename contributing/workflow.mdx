@@ -1,0 +1,302 @@
+---
+title: Development Workflow
+description: Best practices and workflows for contributing to Crimsonland
+---
+
+This guide covers the day-to-day development workflow and best practices for contributing to Crimsonland.
+
+## Preferred Refactor Style
+
+### Migrate Callers, Then Delete Legacy APIs
+
+<Note>
+Default posture: **cutover refactors**.
+</Note>
+
+<Steps>
+  <Step title="Update All Internal Callers">
+    Update all internal callers in one wave; delete old APIs/schemas/tests for deprecated behavior.
+  </Step>
+  
+  <Step title="Avoid Compatibility Wrappers">
+    Do **not** add long-lived compatibility wrappers. If compatibility is absolutely required: keep it **small, local, temporary**, mark it clearly for removal (with a removal note).
+  </Step>
+  
+  <Step title="Delete Old Paths">
+    Delete old paths rather than supporting two worlds.
+  </Step>
+</Steps>
+
+### Subtract Before You Add
+
+Before introducing a new abstraction or subsystem, remove dead code, obsolete wrappers, and duplicate paths in the target area.
+
+### Outcome-Oriented Execution
+
+- It's OK for intermediate steps to break **if** the breakage is scoped and planned
+- Final state must be coherent, verified, and free of permanent temporary scaffolding
+
+### Redesign From First Principles
+
+For major architectural or schema changes:
+
+1. Define the ideal target state as if this requirement existed from day one
+2. Land incrementally toward that target
+3. Do not bolt on special cases that preserve avoidable complexity
+
+### Exhaust the Design Space
+
+Only when **not dictated by the original binary** and there are multiple viable options:
+
+- Sketch 2–3 concrete alternatives
+- Pick based on parity risk, maintainability, and testability
+
+<Warning>
+Skip this for mechanical ports and obvious root-cause fixes.
+</Warning>
+
+## Code Smells to Avoid
+
+Especially in gameplay/domain code:
+
+<AccordionGroup>
+  <Accordion title="Defensive Runtime Checks">
+    Deep in the domain:
+    - `isinstance`, `hasattr`, "just in case" `try/except ValueError`
+    - `.get()` / `getattr()` on typed models to dodge typing (OK for truly dynamic dicts or narrow tooling)
+  </Accordion>
+  
+  <Accordion title="Thin Duck Typing">
+    Thin duck typing protocols that blur invariants
+  </Accordion>
+  
+  <Accordion title="Hand-Written Mappers">
+    Hand-written field-by-field mappers just to satisfy style (prefer serializers/DTOs)
+  </Accordion>
+  
+  <Accordion title="Long-Lived Compat Layers">
+    Long-lived "compat" layers when internal callers can be migrated
+  </Accordion>
+</AccordionGroup>
+
+## Encode Lessons in Structure
+
+<Tip>
+If a mistake or review comment repeats, convert it into enforcement:
+</Tip>
+
+- Tests / snapshots / invariants
+- `ast-grep` rules
+- `import-linter` contracts
+- Typed schemas and decoders
+- Scripts/automation
+
+**Text rules are forgettable; structural rules enforce themselves.**
+
+## Quick Playbooks
+
+### Parity Bug Investigation
+
+<Steps>
+  <Step title="Reproduce">
+    Reproduce using the canonical capture/replay.
+  </Step>
+  
+  <Step title="Generate Report">
+    Generate divergence report and/or verify-capture.
+  </Step>
+  
+  <Step title="Isolate Mismatch">
+    Isolate the **first sustained mismatch** and identify the subsystem.
+  </Step>
+  
+  <Step title="Fix Root Cause">
+    Fix the **root cause** (not the symptom).
+  </Step>
+  
+  <Step title="Re-Run">
+    Re-run the **same** capture/replay and confirm the mismatch moves/disappears for the right reason.
+  </Step>
+  
+  <Step title="Add Regression Test">
+    Add a regression test that locks the discovered behavior.
+  </Step>
+</Steps>
+
+### API/Schema Refactor (Cutover Wave)
+
+<Steps>
+  <Step title="Define Target">
+    Define target API and invariants (ordering, ownership, serialization boundaries).
+  </Step>
+  
+  <Step title="Migrate Callers">
+    Migrate all internal callers in one wave.
+  </Step>
+  
+  <Step title="Delete Legacy">
+    Delete legacy APIs/re-exports/tests in the same wave.
+  </Step>
+  
+  <Step title="Search References">
+    Search for remaining references to old surfaces and remove them.
+  </Step>
+  
+  <Step title="Verify">
+    Verify with `just check` / `just check-zig` and parity tests/artifacts.
+  </Step>
+</Steps>
+
+### Capture-Only Triage
+
+<Steps>
+  <Step title="Follow Playbook">
+    Follow `docs/frida/differential-playbook.md`.
+  </Step>
+  
+  <Step title="Record SHA">
+    Record capture SHA and keep notes tied to that artifact.
+  </Step>
+  
+  <Step title="Use Divergence Tools">
+    Use divergence + bisect/focus traces **before** touching runtime code.
+  </Step>
+  
+  <Step title="Improve Instrumentation">
+    If telemetry is insufficient, improve instrumentation and re-capture.
+  </Step>
+</Steps>
+
+### Docs/Tooling Changes
+
+<Steps>
+  <Step title="Align Guidance">
+    Keep guidance aligned with parity-first + typed-boundary policy.
+  </Step>
+  
+  <Step title="Encode Structurally">
+    When guidance repeats, encode it structurally (rules/tests) where possible.
+  </Step>
+  
+  <Step title="Verify">
+    Run `just check`.
+  </Step>
+</Steps>
+
+## Structural Search / Codemods
+
+Prefer `ast-grep` over regex-only edits for structural transformations.
+
+### Python
+
+```bash
+sg scan                              # Run configured rules
+sg test                              # Test ast-grep rules
+sg run -p 'pattern' -r 'fix' src    # Apply transformation
+```
+
+### Zig
+
+Use `sgconfig.local.yml` to load the custom Zig parser. Zig metavariables use `_VAR` syntax (e.g. `_EXPR`):
+
+```bash
+sg run -c sgconfig.local.yml -l zig -p 'const _NAME = _TYPE{};' -r 'const $NAME: $TYPE = .{};' crimson-zig/src -U
+```
+
+## Pull Requests (gh CLI Hygiene)
+
+When using `gh`:
+
+<Steps>
+  <Step title="Conventional Commit Format">
+    PR title must be in the form of a conventional commit:
+    
+    - `feat: add new weapon system`
+    - `fix: correct RNG seed handling`
+    - `refactor: simplify perk selection logic`
+  </Step>
+  
+  <Step title="Use Body Files">
+    To avoid escaping issues, write the PR description to a file:
+    
+    ```bash
+    gh pr create --body-file pr_body.md
+    gh pr edit --body-file pr_body.md
+    ```
+  </Step>
+  
+  <Step title="Squash Merge">
+    When merging, use squash:
+    
+    ```bash
+    gh pr merge --squash <pr>
+    ```
+  </Step>
+</Steps>
+
+## Pre-Commit Verification
+
+Before committing, always run:
+
+```bash
+just check
+```
+
+Or use pre-commit hooks:
+
+```bash
+# Install once per clone/worktree
+prek install -c prek.toml -t pre-commit -t pre-push
+
+# Manual runs
+prek run --stage pre-commit  # Fast checks only
+prek run --stage pre-push    # Heavy checks
+```
+
+### CI-Equivalent Local Run
+
+<Tabs>
+  <Tab title="Python/Docs/Tooling Changes">
+    For changes to `src/`, `tests/`, `docs/`, `tools/`:
+    
+    ```bash
+    just check && uv build
+    ```
+  </Tab>
+  
+  <Tab title="Zig-Only Changes">
+    For changes to `crimson-zig/`:
+    
+    ```bash
+    just check-zig
+    ```
+  </Tab>
+  
+  <Tab title="Mixed Changes">
+    For changes to both:
+    
+    ```bash
+    just check && uv build && just check-zig
+    ```
+  </Tab>
+</Tabs>
+
+## Reminder: When in Doubt
+
+<CardGroup cols={2}>
+  <Card title="Choose Fidelity" icon="crosshairs">
+    Choose fidelity and determinism over cleanliness
+  </Card>
+  
+  <Card title="Prove Behavior" icon="microscope">
+    Prove behavior with decompile/captures/replays/tests, not intuition
+  </Card>
+  
+  <Card title="Fix Boundaries" icon="border-all">
+    Fix schemas/types/contracts at boundaries rather than weakening the domain
+  </Card>
+  
+  <Card title="Delete Old Paths" icon="trash">
+    Delete old paths rather than supporting two worlds
+  </Card>
+</CardGroup>

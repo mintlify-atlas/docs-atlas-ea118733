@@ -1,0 +1,207 @@
+---
+title: Config Command
+description: Inspect crimson.cfg configuration values
+---
+
+Inspect the binary `crimson.cfg` configuration file used by the game.
+
+## Usage
+
+```bash
+crimson config [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--path" type="Path">
+  Path to `crimson.cfg` file.
+  
+  Default: `base-dir/crimson.cfg`
+</ParamField>
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files.
+  
+  Default: Per-user OS data directory
+  
+  Override with `CRIMSON_RUNTIME_DIR` environment variable.
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+## Output Format
+
+The command prints configuration values in human-readable format:
+
+```bash
+path: /home/user/.local/share/crimsonland/crimson.cfg
+screen: 1024x768
+windowed: 1
+bpp: 32
+texture_scale: 1
+fields:
+screen_width: 1024
+screen_height: 768
+screen_bpp: 32
+windowed_flag: 1
+texture_scale: 1
+player_name: b'Player\x00\x00...' (len=32)
+...
+```
+
+## Configuration Fields
+
+The `crimson.cfg` file is a binary structure containing:
+
+<ParamField path="screen_width" type="int">
+  Window width in pixels.
+</ParamField>
+
+<ParamField path="screen_height" type="int">
+  Window height in pixels.
+</ParamField>
+
+<ParamField path="screen_bpp" type="int">
+  Bits per pixel (color depth).
+  
+  Typically `32` for RGBA8888.
+</ParamField>
+
+<ParamField path="windowed_flag" type="int">
+  Windowed mode flag.
+  
+  - `0` = Fullscreen
+  - `1` = Windowed
+</ParamField>
+
+<ParamField path="texture_scale" type="int">
+  Texture scaling factor.
+  
+  - `1` = Original resolution
+  - `2` = 2x upscaled
+</ParamField>
+
+<ParamField path="player_name" type="bytes[32]">
+  Player name as null-terminated ASCII string.
+</ParamField>
+
+Additional fields include audio settings, control bindings, and game preferences.
+
+## Examples
+
+### Inspect Default Config
+
+```bash
+crimson config
+```
+
+Output:
+```
+path: /home/user/.local/share/crimsonland/crimson.cfg
+screen: 1024x768
+windowed: 1
+bpp: 32
+texture_scale: 1
+fields:
+screen_width: 1024
+screen_height: 768
+...
+```
+
+### Inspect Custom Config
+
+```bash
+crimson config --path ./custom_crimson.cfg
+```
+
+### Inspect with Custom Runtime Dir
+
+```bash
+crimson config --base-dir $PWD/artifacts/runtime
+```
+
+## Config File Location
+
+Default locations by platform:
+
+**Linux:**
+```
+~/.local/share/crimsonland/crimson.cfg
+```
+
+**macOS:**
+```
+~/Library/Application Support/crimsonland/crimson.cfg
+```
+
+**Windows:**
+```
+%APPDATA%\crimsonland\crimson.cfg
+```
+
+Override with `CRIMSON_RUNTIME_DIR`:
+
+```bash
+export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+crimson config
+# Reads: ./artifacts/runtime/crimson.cfg
+```
+
+## Binary Format
+
+The `crimson.cfg` file uses a fixed binary structure defined in `grim.config.CRIMSON_CFG_STRUCT`.
+
+Key characteristics:
+- Fixed size (varies by version)
+- Little-endian integers
+- Null-terminated strings
+- Padding bytes for alignment
+
+The config is read/written using the [Construct](https://construct.readthedocs.io/) library.
+
+## Modifying Config
+
+The game writes `crimson.cfg` automatically when settings change. To manually edit:
+
+1. Run the game once to generate default config
+2. Modify in-game settings
+3. Config is saved on exit
+
+Direct binary editing is not recommended. Use in-game menus instead.
+
+## Missing Config
+
+If `crimson.cfg` doesn't exist, the game creates it with defaults:
+
+```bash
+# First run creates config
+crimson
+# Config now exists
+crimson config
+```
+
+## Error Handling
+
+### Config Not Found
+
+```bash
+crimson config --path /nonexistent.cfg
+```
+
+Creates a new config with default values.
+
+### Corrupted Config
+
+If the config file is corrupted, delete it and let the game recreate:
+
+```bash
+rm ~/.local/share/crimsonland/crimson.cfg
+crimson  # Creates new default config
+```
+
+## See Also
+
+- [Run Command](/cli/run) — Launch game with custom window size
+- [Runtime Configuration](/installation/runtime-configuration) — Runtime directory structure

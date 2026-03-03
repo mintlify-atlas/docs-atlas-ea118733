@@ -1,0 +1,497 @@
+---
+title: Commit Guidelines
+description: Standards for writing meaningful commit messages and managing git history
+---
+
+The Crimsonland project follows strict commit guidelines to maintain a clear, reviewable, and useful git history.
+
+## Commit Message Format
+
+All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>: <description>
+
+[optional body]
+
+[optional footer]
+```
+
+### Types
+
+<Tabs>
+  <Tab title="feat">
+    **New feature** - A wholly new capability added to the codebase.
+    
+    ```
+    feat: add plasma rifle weapon
+    feat: implement replay checkpoint verification
+    ```
+  </Tab>
+  
+  <Tab title="fix">
+    **Bug fix** - Corrects incorrect behavior.
+    
+    ```
+    fix: correct RNG seed initialization
+    fix: resolve creature heading wrap at tau boundary
+    ```
+  </Tab>
+  
+  <Tab title="refactor">
+    **Refactoring** - Code restructuring without behavior change.
+    
+    ```
+    refactor: simplify perk selection logic
+    refactor: extract weapon damage calculation to helper
+    ```
+  </Tab>
+  
+  <Tab title="perf">
+    **Performance improvement** - Makes code faster without changing behavior.
+    
+    ```
+    perf: optimize collision detection grid
+    perf: cache weapon table lookups
+    ```
+  </Tab>
+  
+  <Tab title="test">
+    **Test changes** - Add or modify tests.
+    
+    ```
+    test: add deterministic replay verification tests
+    test: add regression test for creature heading wrap
+    ```
+  </Tab>
+  
+  <Tab title="docs">
+    **Documentation** - Documentation-only changes.
+    
+    ```
+    docs: document float parity policy
+    docs: add parity workflow guide
+    ```
+  </Tab>
+  
+  <Tab title="chore">
+    **Maintenance** - Build, dependencies, tooling.
+    
+    ```
+    chore: update pytest to 9.0.2
+    chore: add ast-grep rule for float normalization
+    ```
+  </Tab>
+  
+  <Tab title="style">
+    **Code style** - Formatting, whitespace, imports (no behavior change).
+    
+    ```
+    style: fix import ordering
+    style: apply ruff auto-fixes
+    ```
+  </Tab>
+</Tabs>
+
+### Description Guidelines
+
+<Steps>
+  <Step title="Use Imperative Mood">
+    Write as if giving a command: "add", "fix", "refactor" (not "added", "fixes", "refactoring").
+    
+    ```
+    ✅ fix: correct weapon damage calculation
+    ❌ fix: corrects weapon damage calculation
+    ❌ fix: correcting weapon damage calculation
+    ```
+  </Step>
+  
+  <Step title="Start with Lowercase">
+    Begin the description with a lowercase letter.
+    
+    ```
+    ✅ feat: add new weapon system
+    ❌ feat: Add new weapon system
+    ```
+  </Step>
+  
+  <Step title="No Period at End">
+    Do not end with a period.
+    
+    ```
+    ✅ fix: resolve collision detection bug
+    ❌ fix: resolve collision detection bug.
+    ```
+  </Step>
+  
+  <Step title="Keep Under 72 Characters">
+    The first line should be concise (ideally under 72 characters).
+  </Step>
+</Steps>
+
+## Commit Body (Optional)
+
+For complex changes, add a body explaining **why** (not what):
+
+```
+fix: preserve native float32 spill point in creature movement
+
+The original decompile shows an explicit f32 cast at the assignment
+point. Moving the spill earlier causes divergence in quest_1_8 capture
+at frame 7756.
+
+Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+Session: docs/frida/differential-sessions/session-19.md
+```
+
+### When to Include a Body
+
+<AccordionGroup>
+  <Accordion title="Parity Fixes">
+    Always include evidence and session references for parity-related changes.
+  </Accordion>
+  
+  <Accordion title="Non-Obvious Changes">
+    Explain surprising or counter-intuitive decisions.
+  </Accordion>
+  
+  <Accordion title="Breaking Changes">
+    Document what breaks and migration path (also use `BREAKING CHANGE:` footer).
+  </Accordion>
+  
+  <Accordion title="Complex Refactors">
+    Explain the refactoring strategy and why it's safe.
+  </Accordion>
+</AccordionGroup>
+
+## Commit Size
+
+<Warning>
+Keep commits **small and reviewable** - one subsystem at a time.
+</Warning>
+
+### Good Commit Sizes
+
+✅ **Single logical change:**
+```
+fix: correct zombie spawn rate calculation
+```
+
+✅ **Focused refactor:**
+```
+refactor: extract weapon damage helpers to module
+```
+
+✅ **Isolated feature:**
+```
+feat: add checkpoint verification to replay system
+```
+
+### Bad Commit Sizes
+
+❌ **Too large (multiple unrelated changes):**
+```
+fix: various gameplay fixes
+- Fix zombie spawn rate
+- Update weapon damage
+- Refactor perk system
+- Add new tests
+```
+
+❌ **Too small (incomplete change):**
+```
+fix: update zombie
+fix: update zombie again
+fix: finish zombie update
+```
+
+## Commit Atomicity
+
+Each commit should:
+
+<CardGroup cols={2}>
+  <Card title="Pass All Checks" icon="check">
+    Every commit should pass `just check` (tests, linting, type checking).
+  </Card>
+  
+  <Card title="Be Self-Contained" icon="box">
+    Changes should be complete and not depend on future commits.
+  </Card>
+  
+  <Card title="Be Revertable" icon="rotate-left">
+    Should be safe to revert without breaking the codebase.
+  </Card>
+  
+  <Card title="Have Clear Intent" icon="bullseye">
+    Purpose should be obvious from message and changes.
+  </Card>
+</CardGroup>
+
+## Pre-Commit Verification
+
+Before committing, verify your changes:
+
+```bash
+# Run full verification
+just check
+
+# Or use pre-commit hook (automatic)
+prek install -c prek.toml -t pre-commit -t pre-push
+```
+
+The pre-commit hook will automatically run:
+- `ruff check` (linting)
+- `ty check` (type checking)
+- `lint-imports` (import contracts)
+- `sg scan` (structural rules)
+
+## Pull Request Guidelines
+
+When using `gh` CLI for pull requests:
+
+### PR Title Format
+
+PR titles must follow the same conventional commit format:
+
+```
+feat: add replay checkpoint verification
+fix: resolve creature heading wrap bug
+refactor: simplify perk selection logic
+```
+
+### Creating PRs
+
+Use body files to avoid escaping issues:
+
+```bash
+# Write PR body to file
+cat > pr_body.md <<EOF
+## Summary
+- Add checkpoint verification to replay system
+- Compare replay output to sidecar files
+- Add deterministic tests for verification
+
+## Evidence
+- Implements design from docs/frida/differential-playbook.md
+- Tested with quest_1_8 capture
+
+## Testing
+- [x] All tests pass
+- [x] Replay verification works end-to-end
+- [x] Checkpoint comparison produces expected diffs
+EOF
+
+# Create PR
+gh pr create --body-file pr_body.md
+```
+
+### Updating PRs
+
+```bash
+# Update PR body
+gh pr edit --body-file pr_body.md
+```
+
+### Merging PRs
+
+Use squash merge to maintain clean history:
+
+```bash
+gh pr merge --squash <pr-number>
+```
+
+<Note>
+Squash merging combines all commits into one, so the PR title becomes the commit message.
+</Note>
+
+## Git Hygiene
+
+### Keep Changes Small
+
+Prefer multiple small PRs over one large PR:
+
+✅ **Good:**
+- PR #123: `refactor: extract weapon damage helpers`
+- PR #124: `feat: add plasma rifle weapon`
+- PR #125: `test: add weapon damage parity tests`
+
+❌ **Bad:**
+- PR #123: `feat: complete weapon system overhaul` (300 files changed)
+
+### Avoid Merge Commits
+
+Use rebase or squash to keep history linear:
+
+```bash
+# Rebase on main before merging
+git fetch origin
+git rebase origin/main
+
+# Or use squash merge (preferred for PRs)
+gh pr merge --squash
+```
+
+### Interactive Rebase for Cleanup
+
+Before pushing, clean up commit history:
+
+```bash
+# Rebase last 3 commits
+git rebase -i HEAD~3
+
+# Options:
+# - squash: combine commits
+# - reword: change commit message
+# - edit: modify commit
+```
+
+<Warning>
+Never rebase commits that have been pushed to shared branches.
+</Warning>
+
+## Commit Message Examples
+
+### Good Examples
+
+<AccordionGroup>
+  <Accordion title="Simple Fix">
+    ```
+    fix: correct zombie spawn rate calculation
+    ```
+  </Accordion>
+  
+  <Accordion title="Feature with Context">
+    ```
+    feat: add replay checkpoint verification
+    
+    Implements deterministic checkpoint comparison for replay files.
+    Compares runtime state to checkpoint sidecar at frame boundaries.
+    
+    Part of parity verification workflow from differential-playbook.md.
+    ```
+  </Accordion>
+  
+  <Accordion title="Parity Fix with Evidence">
+    ```
+    fix: preserve native f32 spill in creature heading calculation
+    
+    The original decompile shows explicit float cast at assignment.
+    Moving spill earlier causes divergence at quest_1_8 frame 7756.
+    
+    Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+    Session: docs/frida/differential-sessions/session-19.md
+    Verified: quest_1_8 capture now passes checkpoint verification
+    ```
+  </Accordion>
+  
+  <Accordion title="Breaking Change">
+    ```
+    refactor: migrate weapon system to typed schemas
+    
+    BREAKING CHANGE: Weapon serialization format changed from dict to
+    msgspec Struct. Old save files will not load.
+    
+    Migration: Run `uv run scripts/migrate_saves.py` to convert.
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Bad Examples
+
+<AccordionGroup>
+  <Accordion title="Too Vague">
+    ❌ `fix: bug fixes`
+    
+    ✅ `fix: correct zombie spawn rate calculation`
+  </Accordion>
+  
+  <Accordion title="What, Not Why">
+    ❌ `fix: change constant to 0.6000000238418579`
+    
+    ✅ `fix: preserve native f32 constant in turn rate calculation`
+  </Accordion>
+  
+  <Accordion title="Multiple Unrelated Changes">
+    ❌ `chore: various updates and fixes`
+    
+    ✅ Split into multiple focused commits
+  </Accordion>
+  
+  <Accordion title="Wrong Type">
+    ❌ `feat: fix zombie spawn bug` (should be `fix:`)
+    
+    ✅ `fix: correct zombie spawn rate calculation`
+  </Accordion>
+</AccordionGroup>
+
+## Commit Workflow
+
+Recommended workflow:
+
+<Steps>
+  <Step title="Make Focused Changes">
+    Work on one logical change at a time.
+  </Step>
+  
+  <Step title="Verify Changes">
+    ```bash
+    just check
+    ```
+  </Step>
+  
+  <Step title="Stage Files">
+    ```bash
+    git add <files>
+    ```
+  </Step>
+  
+  <Step title="Commit with Conventional Message">
+    ```bash
+    git commit -m "fix: correct zombie spawn rate calculation"
+    ```
+  </Step>
+  
+  <Step title="Push to Branch">
+    ```bash
+    git push origin feature-branch
+    ```
+  </Step>
+  
+  <Step title="Create PR">
+    ```bash
+    gh pr create --body-file pr_body.md
+    ```
+  </Step>
+</Steps>
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Conventional Commits" icon="book">
+    [conventionalcommits.org](https://www.conventionalcommits.org/) - Full specification
+  </Card>
+  
+  <Card title="gh CLI" icon="github">
+    [cli.github.com](https://cli.github.com/) - GitHub CLI documentation
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Workflow" icon="rotate" href="/contributing/workflow">
+    Learn the full contribution workflow
+  </Card>
+  
+  <Card title="Verification Process" icon="check-double" href="/contributing/dev/verification">
+    Ensure commits pass all checks
+  </Card>
+  
+  <Card title="Code Style" icon="paintbrush" href="/contributing/guidelines/code-style">
+    Follow project coding standards
+  </Card>
+  
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Understand parity-first development
+  </Card>
+</CardGroup>

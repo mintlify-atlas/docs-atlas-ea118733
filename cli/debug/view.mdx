@@ -1,0 +1,281 @@
+---
+title: view Command
+description: Launch raylib debug views and sandboxes
+---
+
+Launch specialized debug views for testing rendering, gameplay systems, and development sandboxes.
+
+## Usage
+
+```bash
+crimson view <name> [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="name" type="string" required>
+  View name to launch.
+  
+  Available views are defined in `crimson.views`.
+  
+  Common views:
+  - `empty` — Empty scene
+  - `lighting-debug` — Lighting system debug
+  - `sprite-test` — Sprite rendering test
+  - `terrain-test` — Terrain rendering test
+</ParamField>
+
+## Options
+
+<ParamField path="--width" type="int" default="1024">
+  Window width in pixels.
+</ParamField>
+
+<ParamField path="--height" type="int" default="768">
+  Window height in pixels.
+</ParamField>
+
+<ParamField path="--fps" type="int" default="60">
+  Target frame rate.
+</ParamField>
+
+<ParamField path="--dump-shader-debug-views" type="flag">
+  **lighting-debug only**: Run autodiag and dump screenshots for each shader debug mode.
+</ParamField>
+
+<ParamField path="--dump-shader-debug-frames" type="int" default="399">
+  **lighting-debug only**: Total autodiag frames when `--dump-shader-debug-views` is set.
+  
+  Must be ≥ 30.
+</ParamField>
+
+<ParamField path="--autotune-shadow-defaults" type="flag">
+  **lighting-debug only**: Run automated quality/perf sweep and print best tuning preset.
+</ParamField>
+
+<ParamField path="--autotune-shadow-frames" type="int" default="96">
+  **lighting-debug only**: Sampled frames per preset when `--autotune-shadow-defaults` is set.
+  
+  Must be ≥ 12.
+</ParamField>
+
+<ParamField path="--preserve-bugs" type="flag">
+  Preserve known original exe bugs/quirks.
+</ParamField>
+
+<ParamField path="--assets-dir" type="Path" default="artifacts/assets">
+  Assets root directory.
+</ParamField>
+
+## Available Views
+
+To see all available views:
+
+```bash
+crimson view unknown
+```
+
+Output:
+```
+unknown view 'unknown'. Available: empty, lighting-debug, sprite-test, terrain-test, ...
+```
+
+## Examples
+
+### Empty Scene
+
+```bash
+crimson view empty
+```
+
+Launches minimal raylib window.
+
+### Lighting Debug View
+
+```bash
+crimson view lighting-debug --width 1920 --height 1080
+```
+
+### Dump All Shader Debug Modes
+
+```bash
+crimson view lighting-debug --dump-shader-debug-views --dump-shader-debug-frames 600
+```
+
+Generates screenshots for each shader debug mode.
+
+### Autotune Shadow Settings
+
+```bash
+crimson view lighting-debug --autotune-shadow-defaults --autotune-shadow-frames 120
+```
+
+Runs performance sweep and prints optimal shadow settings.
+
+### Sprite Test
+
+```bash
+crimson view sprite-test --fps 144
+```
+
+### Custom Assets
+
+```bash
+crimson view terrain-test --assets-dir ./custom_assets
+```
+
+## View Context
+
+Views receive a `ViewContext`:
+
+```python
+class ViewContext:
+    assets_dir: Path
+    preserve_bugs: bool
+```
+
+This provides asset access and bug preservation flag.
+
+## Lighting Debug View
+
+The `lighting-debug` view has special diagnostic modes:
+
+### Shader Debug Modes
+
+Cycle through shader debug visualizations:
+
+- Normals
+- Depth
+- Shadows
+- Ambient occlusion
+- Light accumulation
+
+Use `--dump-shader-debug-views` to export all modes.
+
+### Shadow Autotuning
+
+The `--autotune-shadow-defaults` flag runs performance benchmarks:
+
+1. Tests multiple shadow quality presets
+2. Measures frame time for each
+3. Finds best quality/performance balance
+4. Prints recommended settings
+
+Useful for optimizing shadow settings on different hardware.
+
+## Controls
+
+Common view controls:
+
+- `ESC` — Close view
+- `F12` — Screenshot
+
+View-specific controls vary. Check view implementation for details.
+
+## Error Handling
+
+### Unknown View
+
+```bash
+crimson view nonexistent
+```
+
+Output:
+```
+unknown view 'nonexistent'. Available: empty, lighting-debug, ...
+```
+
+Exit code: `1`
+
+### Conflicting Flags
+
+```bash
+crimson view lighting-debug --dump-shader-debug-views --autotune-shadow-defaults
+```
+
+Output:
+```
+--dump-shader-debug-views and --autotune-shadow-defaults cannot be used together
+```
+
+Exit code: `1`
+
+### Wrong View for Flag
+
+```bash
+crimson view empty --dump-shader-debug-views
+```
+
+Output:
+```
+--dump-shader-debug-views is only supported for view 'lighting-debug'
+```
+
+Exit code: `1`
+
+## Use Cases
+
+### Renderer Development
+
+Test rendering systems in isolation:
+
+```bash
+crimson view lighting-debug
+```
+
+### Asset Debugging
+
+Verify sprite/texture loading:
+
+```bash
+crimson view sprite-test --assets-dir ./test_assets
+```
+
+### Performance Tuning
+
+Benchmark render paths:
+
+```bash
+crimson view lighting-debug --autotune-shadow-defaults --fps 120
+```
+
+### Screenshot Generation
+
+Generate reference images:
+
+```bash
+crimson view terrain-test --dump-shader-debug-views
+```
+
+## Creating Custom Views
+
+Views are defined in `crimson/views/`:
+
+```python
+from crimson.views import ViewDefinition
+from grim.view import ViewContext
+
+def my_view_factory(ctx: ViewContext):
+    # Return view instance
+    return MyView(ctx)
+
+MY_VIEW = ViewDefinition(
+    name="my-view",
+    title="My Custom View",
+    factory=my_view_factory,
+)
+```
+
+Register in `crimson/views/__init__.py`:
+
+```python
+from .my_view import MY_VIEW
+
+def all_views():
+    return [MY_VIEW, ...]
+```
+
+## See Also
+
+- [Run Command](/cli/run) — Launch full game
+- [Quest Debug](/cli/debug/quests) — Debug quest spawns

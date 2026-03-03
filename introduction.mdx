@@ -1,0 +1,95 @@
+---
+title: Introduction
+description: A high-fidelity reimplementation of Crimsonland v1.9.93 (2003) in Python + raylib
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Crimsonland Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Crimsonland Hero Dark"
+/>
+
+## Welcome to Crimsonland
+
+Crimsonland is a high-fidelity reimplementation of [Crimsonland](https://en.wikipedia.org/wiki/Crimsonland) v1.9.93 (2003, GOG "Crimsonland Classic") in Python + raylib, paired with deep reverse engineering of the original Windows binary.
+
+The aim of the project is **behavioral parity**: timings, RNG sequences, float32 math, UI layout quirks, asset decoding, and gameplay rules match the original as closely as practical.
+
+## Current state
+
+The rewrite is a playable full game: boot, menus, Survival, Rush, Quests (5 tiers), Tutorial, and Typ-o-Shooter, with full weapon/creature/perk content, terrain/sprite/decal rendering, music, gameplay SFX, and even secrets. The simulation is fully deterministic, supporting seeded runs and headless verifiable replays.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card
+    title="Behavioral parity"
+    icon="clone"
+  >
+    Timings, RNG sequences, float32 math, and gameplay rules match the original
+  </Card>
+  <Card
+    title="Deterministic simulation"
+    icon="clock-rotate-left"
+  >
+    Supports seeded runs and headless verifiable replays
+  </Card>
+  <Card
+    title="Full game modes"
+    icon="gamepad"
+  >
+    Survival, Rush, Quests (5 tiers), Tutorial, and Typ-o-Shooter
+  </Card>
+  <Card
+    title="Differential testing"
+    icon="code-compare"
+  >
+    Headless testing harness verifies runs against the original game
+  </Card>
+</CardGroup>
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get up and running in under a minute with uvx
+  </Card>
+  <Card
+    title="System requirements"
+    icon="laptop"
+    href="/installation/requirements"
+  >
+    Check if your system meets the requirements
+  </Card>
+  <Card
+    title="Install from PyPI"
+    icon="box"
+    href="/installation/from-pypi"
+  >
+    Install using uvx or pip for the latest stable release
+  </Card>
+  <Card
+    title="Install from source"
+    icon="code"
+    href="/installation/from-source"
+  >
+    Clone and run from source for development
+  </Card>
+</CardGroup>
+
+## Tech stack
+
+Python 3.13+ · raylib (pyray) · Construct · msgspec · Typer · Ghidra · Frida · WinDbg · pytest · uv
+
+## Legal
+
+This project is an independent reverse engineering and reimplementation effort for preservation, research, and compatibility. No original assets or binaries are included. Use your own legally obtained copy.

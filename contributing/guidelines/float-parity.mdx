@@ -1,0 +1,389 @@
+---
+title: Float Parity Policy
+description: Float32 precision requirements for deterministic gameplay parity
+---
+
+For gameplay code, **float behavior is part of the contract**. This policy explains why and how to maintain native float32 fidelity.
+
+## Default Rule
+
+<Warning>
+In deterministic gameplay paths, prefer **native float32 fidelity** over source readability.
+</Warning>
+
+<Steps>
+  <Step title="Keep Decompiled Float Constants">
+    Keep decompiled float constants when they influence simulation outcomes.
+  </Step>
+  
+  <Step title="Keep Native Operation Ordering">
+    Keep native operation ordering when it changes rounding boundaries.
+  </Step>
+  
+  <Step title="Keep Float32 Store/Truncation Points">
+    Keep float32 store/truncation points where native stores to `float`.
+  </Step>
+</Steps>
+
+Do not auto-normalize literals like `0.6000000238418579` to `0.6` in parity-critical code unless parity evidence shows the change is behavior-neutral.
+
+## Why This Matters
+
+Small float deltas can reorder branch decisions and collision outcomes, then amplify into RNG drift and deterministic divergence over long runs.
+
+### Real Example: Session 18 & 19
+
+From `docs/frida/differential-sessions/`:
+
+- **Session 18**: Decompile-order `angle_approach` fix moved first mismatch from frame 7722 to 7756
+- **Session 19**: Tighter float32 spill behavior in creature heading/tau-boundary handling cleared the remaining `quest_1_8` capture
+
+<Note>
+These sessions demonstrate that even minor float precision changes cause measurable gameplay divergence.
+</Note>
+
+## Native x87 Usage
+
+The original executable uses x87 floating-point in gameplay hot paths, but persistent state is float32.
+
+### Concrete Findings
+
+<AccordionGroup>
+  <Accordion title="CRT Startup Sets 53-bit Precision">
+    The CRT explicitly configures x87 to 53-bit mode (`PC_53`):
+    
+    - `_start` → `crt_run_initializers` → `FUN_00460cb8` → `sub_4636e7` → `sub_469e81(0x10000, 0x30000)`
+    - `arg1 & 0x30000 == 0x10000` sets control word precision bits to `0x200` (53-bit mode)
+    - IDA names: `__setdefaultprecision` → `__controlfp`
+    
+    Evidence: `analysis/binary_ninja/raw/crimsonland.exe.bndb_hlil.txt` lines 83734, 83777, 91988-91993
+  </Accordion>
+  
+  <Accordion title="Trig Uses x87 with float10 Temporaries">
+    Trig and atan paths use x87 transcendental ops:
+    
+    ```c
+    // From analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+    float10 heading_rad = (float10)creature->heading;
+    float10 dx = fcos(heading_rad - 1.5707964);  // x87 fcos
+    float10 dy = fsin(heading_rad - 1.5707964);  // x87 fsin
+    ```
+    
+    Binary Ninja shows `fconvert.t(...)` (widen to extended precision).
+  </Accordion>
+  
+  <Accordion title="Results Spilled Back to float32">
+    Extended precision results are explicitly spilled to `float` storage:
+    
+    ```c
+    // Explicit f32 spill points
+    creature->move_dx = (float)(dx * creature->speed * dt);
+    creature->move_dy = (float)(dy * creature->speed * dt);
+    ```
+    
+    Binary Ninja shows `fconvert.s(...)` (narrow to float32).
+  </Accordion>
+</AccordionGroup>
+
+### What This Means (Non-Handwavy)
+
+<CardGroup cols={2}>
+  <Card title="Not 80-bit All The Way" icon="xmark">
+    The game is **not** "everything in 80-bit all the way down." Startup precision is `PC_53`, and authoritative state is float32.
+  </Card>
+  
+  <Card title="Two Failure Modes" icon="triangle-exclamation">
+    Parity errors come from:
+    1. Wrong trig/atan evaluation around branch boundaries
+    2. Wrong placement of float32 spills (too early or too late)
+  </Card>
+</CardGroup>
+
+## Rewrite Math Model (Current)
+
+Deterministic gameplay math follows three rules:
+
+<Steps>
+  <Step title="Use f32 as Domain Type">
+    Use `f32` as the gameplay-domain type (positions, headings, timers, speeds, projectile scalar state) unless a value is truly boundary-only.
+  </Step>
+  
+  <Step title="Widen Only at Boundaries">
+    Widen only at boundaries (replay decode, serialization, diagnostics), then immediately spill back to `f32` at the native-equivalent store point.
+  </Step>
+  
+  <Step title="Route Trig Through Native Helpers">
+    Route parity-critical trig/angle helpers through shared native-style math helpers, not ad-hoc per-module implementations.
+  </Step>
+</Steps>
+
+## Zig Runtime Implementation
+
+Canonical native-style math helpers live in the Zig runtime.
+
+### Location
+
+**`crimson-zig/src/runtime/native_math.zig`**
+
+### Constants
+
+Native constants are sourced from exact `f32` bit patterns:
+
+```zig
+pub const pi: f32 = 3.1415927;       // Native f32 π
+pub const half_pi: f32 = 1.5707964;  // Native f32 π/2
+pub const tau: f32 = 6.2831855;      // Native f32 2π
+```
+
+<Warning>
+Do not use `std.math.pi` or decimal literals like `3.14159` - these have different precision.
+</Warning>
+
+### Trig Functions
+
+Native-style trig uses extended precision when available:
+
+```zig
+pub fn sinNative(x: f32) f32;
+pub fn cosNative(x: f32) f32;
+pub fn atan2Native(y: f32, x: f32) f32;
+```
+
+Behavior:
+- Use `sinl`/`cosl`/`atan2l` when `c_longdouble` is wider than `f64`
+- Otherwise use `sin`/`cos`/`atan2`
+- Freestanding builds fall back to `std.math`
+
+### Spill Helper
+
+Explicit float32 truncation:
+
+```zig
+pub fn roundF32(x: anytype) f32 {
+    return @floatCast(x);  // Explicit f32 spill point
+}
+```
+
+Use this at points where native would store to `float`.
+
+### Angle Helpers
+
+Shared angle helpers encode decompile/native corner cases:
+
+```zig
+pub fn wrapAngle0Tau(angle: f32) f32;               // Wrap angle to [0, tau)
+pub fn headingFromDeltaNative(dx: f32, dy: f32) f32;  // atan2 + tau wrap
+pub fn headingAddPiNative(heading: f32) f32;        // Add π with wrap
+```
+
+### Math Dispatch
+
+**`crimson-zig/src/runtime/math.zig`** dispatches by type:
+
+```zig
+pub fn sin(x: anytype) @TypeOf(x) {
+    return switch (@TypeOf(x)) {
+        f32 => native_math.sinNative(x),        // f32 uses native path
+        f64 => std.math.sin(x),                 // f64 uses std
+        comptime_float => std.math.sin(x),
+        else => @compileError("unsupported"),
+    };
+}
+```
+
+## Python/Zig Interop
+
+Python code calls Zig native math via bindings:
+
+```python
+# Python wrapper (hypothetical)
+from crimson_native import native_math
+
+def creature_move(creature, dt: float):
+    heading_rad = creature.heading
+    # Use native trig
+    dx = native_math.cos_native(heading_rad - native_math.HALF_PI)
+    dy = native_math.sin_native(heading_rad - native_math.HALF_PI)
+    # Explicit f32 spill
+    creature.move_dx = native_math.round_f32(dx * creature.speed * dt)
+    creature.move_dy = native_math.round_f32(dy * creature.speed * dt)
+```
+
+## Allowed Normalization
+
+Literal simplification is acceptable when **all** of the following are true:
+
+<Steps>
+  <Step title="Non-Deterministic or Presentation-Only">
+    The path is non-deterministic or presentation-only (not gameplay simulation).
+  </Step>
+  
+  <Step title="Differential Evidence Shows No Change">
+    Differential evidence (capture + verifier) shows no behavior change.
+  </Step>
+  
+  <Step title="Test or Session Note Records Evidence">
+    A test or session note records that evidence.
+  </Step>
+</Steps>
+
+If any condition is missing, **keep the native-looking float behavior**.
+
+### Example
+
+```python
+# UI rendering (non-deterministic) - OK to normalize
+UI_FADE_RATE = 0.5  # Simplified from 0.5000000000000000
+
+# Gameplay physics (deterministic) - DO NOT normalize
+CREATURE_SPEED = 2.5000000476837158  # Must preserve exact f32 bit pattern
+```
+
+## Implementation Guidance
+
+<AccordionGroup>
+  <Accordion title="Single Shared Helper Source">
+    Prefer a single shared helper source over local math wrappers:
+    
+    - `runtime/native_math.zig` (Zig)
+    - `runtime/math.zig` (Zig dispatcher)
+    - Python bindings to Zig natives
+  </Accordion>
+  
+  <Accordion title="Keep Domain State in f32">
+    Keep gameplay-domain state in `f32`; avoid repeated `f64 -> f32 -> f64` churn inside hot loops.
+  </Accordion>
+  
+  <Accordion title="Explicit Spill Points">
+    Use explicit spill points (`roundF32`) where native would store to `float`:
+    
+    ```zig
+    const result = some_extended_precision_calc();
+    creature.position_x = roundF32(result);  // Explicit f32 spill
+    ```
+  </Accordion>
+  
+  <Accordion title="Prefer Captures Over Intuition">
+    Prefer parity captures and focused traces over intuitive "cleanup".
+  </Accordion>
+  
+  <Accordion title="Document Deviations">
+    Document any intentional float deviation in differential session docs:
+    
+    - `docs/frida/differential-sessions.md`
+    - `docs/frida/differential-sessions/session-*.md`
+  </Accordion>
+</AccordionGroup>
+
+## Common Mistakes
+
+<Warning>
+Avoid these common float parity mistakes:
+</Warning>
+
+### Normalizing Constants
+
+```python
+# Bad - normalized constant
+TURN_RATE = 0.6  # Lost native precision
+
+# Good - preserved native constant
+TURN_RATE = 0.6000000238418579  # Native f32 bit pattern
+```
+
+### Wrong Operation Order
+
+```python
+# Bad - different operation order
+result = (a + b) * c / d
+
+# Good - matches native decompile order
+result = a + b
+result = result * c
+result = result / d
+```
+
+### Missing Spill Points
+
+```python
+# Bad - accumulating extended precision
+for i in range(100):
+    position += velocity * dt  # Precision drift
+
+# Good - explicit f32 spill each iteration
+for i in range(100):
+    position = round_f32(position + velocity * dt)
+```
+
+### Using Wrong Math Functions
+
+```python
+# Bad - Python's float64 math
+import math
+heading = math.atan2(dy, dx)
+
+# Good - native-style f32 math
+heading = native_math.atan2_native(dy, dx)
+```
+
+## Verification
+
+Verify float parity using differential testing:
+
+```python
+import pytest
+
+def test_creature_heading_parity():
+    """Test creature heading calculation matches native f32 behavior.
+    
+    Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+    Session: docs/frida/differential-sessions/session-19.md
+    """
+    dx, dy = 1.5, 2.3
+    heading = heading_from_delta_native(dx, dy)
+    
+    # Native-verified value (tight f32 tolerance)
+    assert heading == pytest.approx(1.0121970176696777, rel=1e-7)
+```
+
+See [Testing Guide](/contributing/dev/testing) for test patterns.
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Differential Sessions" icon="microscope">
+    `docs/frida/differential-sessions/` - Investigation logs documenting float-related parity fixes
+  </Card>
+  
+  <Card title="Float Expression Map" icon="map">
+    `docs/rewrite/float-expression-precision-map.md` - Expression-level lookup table with decompile anchors
+  </Card>
+  
+  <Card title="Zig Native Math" icon="code">
+    `crimson-zig/src/runtime/native_math.zig` - Canonical native-style math implementation
+  </Card>
+  
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Full parity-first development workflow
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Learn the parity-first development approach
+  </Card>
+  
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Write deterministic float parity tests
+  </Card>
+  
+  <Card title="Code Style" icon="paintbrush" href="/contributing/guidelines/code-style">
+    Follow project coding standards
+  </Card>
+  
+  <Card title="Verification Process" icon="check-double" href="/contributing/dev/verification">
+    Complete verification workflow
+  </Card>
+</CardGroup>

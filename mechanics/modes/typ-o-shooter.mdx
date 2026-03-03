@@ -1,0 +1,261 @@
+---
+title: Typ-o-Shooter Mode
+description: Type words to destroy enemies
+icon: keyboard
+---
+
+# Typ-o-Shooter Mode
+
+Typ-o-Shooter is a unique typing game variant where you destroy enemies by typing words instead of shooting. Each enemy displays a word that must be typed correctly to eliminate it.
+
+## Mode ID
+
+**Game Mode**: `4` (`GameMode.TYPO`)
+
+From `src/crimson/game_modes.py:13`
+
+## Core Mechanics
+
+### Typing System
+
+Each enemy spawns with a word displayed above it. Type the word correctly to instantly kill the enemy.
+
+**Input Method**: Keyboard only (mouse disabled)
+
+**Case Sensitivity**: Not case-sensitive ("ZOMBIE" = "zombie" = "Zombie")
+
+**Word Display**: Words appear as floating text above enemy heads
+
+**Targeting**: Currently typed letters highlight on the target enemy
+
+### Word Selection
+
+Words are chosen from a predefined dictionary with difficulty scaling:
+
+**Early Game (0-2 min)**:
+- 3-5 letter words
+- Common English words
+- No special characters
+- Examples: "fire", "shoot", "blood", "alien"
+
+**Mid Game (2-5 min)**:
+- 5-8 letter words
+- Mix of common and uncommon words
+- Examples: "creature", "shotgun", "plasma", "explosion"
+
+**Late Game (5+ min)**:
+- 8-12 letter words
+- Complex vocabulary
+- Rare words
+- Examples: "annihilation", "extermination", "radioactive"
+
+### Typing Accuracy
+
+**Correct Input**: Enemy dies instantly, word disappears, score awarded
+
+**Incorrect Input**: Input resets, must retype entire word
+
+**Partial Input**: Correct prefix highlights in green, encouraging completion
+
+**Word Completion**: Pressing Enter/Space after completing word is not required—enemy dies on final character
+
+## Scoring
+
+Typ-o-Shooter scoring emphasizes typing speed and accuracy:
+
+### Base Score
+
+```python
+score = word_length × 100 × speed_multiplier
+```
+
+**Word Length Bonus**: Longer words = more points
+
+**Speed Multiplier**:
+- < 1 second: 3x multiplier
+- 1-2 seconds: 2x multiplier
+- 2-4 seconds: 1.5x multiplier
+- 4+ seconds: 1x multiplier
+
+### Combo System
+
+Like Rush mode, Typ-o-Shooter features combo mechanics:
+
+**Combo Building**: Each kill without typing errors increments combo
+
+**Combo Multiplier**: `score × (1 + combo × 0.1)`
+
+**Combo Reset**: Typing errors or delays between kills reset combo
+
+### Accuracy Tracking
+
+**Perfect Round Bonus**: Complete 10 enemies with zero typing errors = +5000 points
+
+**Words Per Minute (WPM)**: Displayed in real-time on HUD
+
+**Accuracy Percentage**: Total correct characters / total typed characters
+
+## Enemy Behavior
+
+### Movement
+
+Enemies still move toward the player, but much slower than normal combat:
+
+**Speed**: 50% of normal creature movement speed
+
+**AI**: Simplified pathfinding (straight-line approach)
+
+**Threat**: Enemies damage player on contact (no shooting)
+
+### Damage
+
+Touching an enemy deals damage:
+
+**Contact Damage**: 10 HP per second of contact
+
+**No Projectiles**: Enemies don't shoot—only melee contact
+
+**Death**: Reaching 0 HP ends game (no weapons to fight back)
+
+### Spawn Rate
+
+Enemy spawns scale with typing skill:
+
+**Adaptive Difficulty**: Faster typing = faster spawns
+
+**WPM-Based Scaling**: 
+```python
+spawn_rate = base_rate × (1 + wpm / 100)
+```
+
+Players typing 60 WPM see 60% faster spawns than 0 WPM baseline.
+
+## No Traditional Combat
+
+### Disabled Systems
+
+**No Weapons**: Player has no gun, no shooting
+
+**No Perks**: Leveling disabled, no perk selection
+
+**No Aiming**: Mouse aim is irrelevant
+
+**No Movement Speed Perks**: Movement is purely positional dodging
+
+### Active Systems
+
+**Movement**: WASD still works for dodging enemies
+
+**Bonuses**: Power-up bonuses still appear but have modified effects:
+
+**Modified Bonuses**:
+- **Nuke**: Still clears screen
+- **Freeze**: Still freezes enemies (gives typing time)
+- **Shield**: Still protects from contact damage
+- **MediKit**: Still restores HP
+- **Energizer**: Modified—kills enemies on contact instead of normal behavior
+- **Double Experience**: Disabled (no XP system)
+- **Weapon bonuses**: Disabled (no weapons)
+
+## Strategy Guide
+
+### Typing Technique
+
+**Touch Typing**: Essential for high scores. Looking at keyboard wastes time.
+
+**Target Priority**:
+1. Closest enemies (immediate threat)
+2. Longest words (spawn new targets faster)
+3. Enemies blocking movement paths
+
+**Positioning**: Stay mobile, type while moving to avoid contact
+
+### Word Recognition
+
+Familiarize yourself with common Crimsonland vocabulary:
+
+**Weapons**: pistol, shotgun, plasma, gauss, rocket
+**Enemies**: zombie, lizard, alien, spider, trooper
+**Effects**: blood, fire, explosion, freeze, shield
+
+**Practice Mode**: Play on easy to learn word pool before competitive runs
+
+### Bonus Usage
+
+**Freeze**: Use when overwhelmed to gain typing time
+
+**Nuke**: Save for maximum enemy density (10+ on screen)
+
+**Shield**: Activate when enemies are very close and typing is risky
+
+**Energizer**: Aggressive bonus—run through crowds while typing
+
+## Leaderboards
+
+Typ-o-Shooter leaderboards track:
+
+**High Score**: Total points in a single session
+
+**WPM Record**: Highest sustained words per minute
+
+**Longest Combo**: Most consecutive kills without errors
+
+**Perfect Accuracy Run**: Highest score with 100% accuracy
+
+## Tips for Typ-o-Shooter
+
+<Tip>
+**Learn Touch Typing**: If you can't touch type, practice before attempting high scores. Looking at the keyboard is too slow.
+</Tip>
+
+<Tip>
+**Read Ahead**: Scan upcoming words while typing current word. Prepare mentally for next target.
+</Tip>
+
+<Tip>
+**Prioritize Safety**: Typing a long word while surrounded is dangerous. Clear close threats first.
+</Tip>
+
+<Tip>
+**Use Freeze Liberally**: Freeze bonus is incredibly valuable. Use it to prevent damage and boost WPM.
+</Tip>
+
+<Warning>
+Typ-o-Shooter is harder than it appears. Even skilled typists struggle with simultaneous typing and dodging.
+</Warning>
+
+## Accessibility Considerations
+
+Typ-o-Shooter has unique accessibility requirements:
+
+**Keyboard Required**: Cannot be played with gamepad or alternative input
+
+**Language**: English words only (may disadvantage non-native speakers)
+
+**Typing Speed**: Minimum ~30 WPM required for reasonable difficulty
+
+**Dyslexia**: Fast word recognition challenges may be difficult
+
+## Competitive Typ-o-Shooter
+
+Top players achieve:
+
+**WPM**: 80-120 sustained
+
+**Score**: 100k+ per session
+
+**Accuracy**: 95%+ (few errors)
+
+**Survival Time**: 10-15 minutes before spawn rate becomes impossible
+
+## Related Documentation
+
+- [Rush Mode](/mechanics/modes/rush) - Similar combo-focused scoring
+- [Bonuses](/mechanics/combat/bonuses) - Power-up effects in Typ-o-Shooter
+- [Creatures](/mechanics/combat/creatures) - Enemy types and behavior
+
+## Source Code References
+
+- `src/crimson/modes/typo_mode.py` - Typ-o-Shooter implementation
+- `src/crimson/typo/` - Typing system and word dictionary
+- `src/crimson/game_modes.py:13` - Mode ID definition

@@ -1,0 +1,281 @@
+---
+title: Runtime configuration
+description: Configure where Crimsonland stores saves, config files, logs, and replays
+---
+
+Crimsonland stores runtime files (saves, config, logs, replays) in platform-specific directories. Learn how to customize these locations.
+
+## Default runtime directories
+
+By default, Crimsonland uses your operating system's per-user data directory:
+
+<Tabs>
+  <Tab title="Linux">
+    ```bash
+    ~/.local/share/crimson/
+    ```
+  </Tab>
+  
+  <Tab title="macOS">
+    ```bash
+    ~/Library/Application Support/crimson/
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    ```powershell
+    %APPDATA%\crimson\
+    ```
+  </Tab>
+</Tabs>
+
+## Runtime directory structure
+
+The runtime directory contains:
+
+```
+runtime/
+├── crimson.cfg          # Game configuration
+├── saves/               # Save files
+├── replays/             # Recorded demos
+└── logs/                # Application logs
+```
+
+## Custom runtime directory
+
+You can override the default location using the `CRIMSON_RUNTIME_DIR` environment variable or the `--base-dir` flag.
+
+### Using environment variable
+
+<CodeGroup>
+  ```bash Linux/macOS
+  export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+  crimson
+  ```
+  
+  ```powershell Windows
+  $env:CRIMSON_RUNTIME_DIR="$PWD\artifacts\runtime"
+  crimson
+  ```
+</CodeGroup>
+
+This keeps all runtime files local to your current directory, useful for:
+- Development and testing
+- Portable installations
+- Multiple isolated game instances
+
+### Using command-line flag
+
+```bash
+crimson --base-dir ./my-runtime
+```
+
+Or the alternative flag:
+
+```bash
+crimson --runtime-dir ./my-runtime
+```
+
+<Note>
+The `--base-dir` and `--runtime-dir` flags are aliases for the same option.
+</Note>
+
+## Development setup
+
+For source development, use a local runtime directory to avoid polluting your system:
+
+```bash
+export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+uv run crimson
+```
+
+Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) to make it permanent:
+
+```bash
+# In your ~/.bashrc or ~/.zshrc
+if [ -d "$HOME/code/crimson" ]; then
+  export CRIMSON_RUNTIME_DIR="$HOME/code/crimson/artifacts/runtime"
+fi
+```
+
+## Configuration file
+
+### Location
+
+The main configuration file is `crimson.cfg` in your runtime directory:
+
+```bash
+# Default location (Linux)
+~/.local/share/crimson/crimson.cfg
+
+# Custom location
+$CRIMSON_RUNTIME_DIR/crimson.cfg
+```
+
+### Inspecting configuration
+
+View current configuration values:
+
+```bash
+crimson config
+```
+
+Inspect a specific config file:
+
+```bash
+crimson config --path /path/to/crimson.cfg
+```
+
+Example output:
+
+```
+path: /home/user/.local/share/crimson/crimson.cfg
+screen: 1024x768
+windowed: True
+bpp: 32
+texture_scale: 1
+fields:
+screen_width: 1024
+screen_height: 768
+windowed_flag: 1
+screen_bpp: 32
+texture_scale: 1
+...
+```
+
+### Configuration options
+
+The `crimson.cfg` binary file contains settings for:
+
+- **Display**: Screen resolution, windowed mode, color depth
+- **Graphics**: Texture scaling, rendering options
+- **Audio**: Volume levels, sound effects, music
+- **Controls**: Key bindings, mouse sensitivity
+- **Gameplay**: Difficulty settings, player preferences
+
+<Note>
+The config file uses a binary format matching the original game. Use `crimson config` to inspect values rather than editing directly.
+</Note>
+
+## Assets directory
+
+By default, Crimsonland looks for game assets in the runtime directory. You can specify a custom assets location:
+
+```bash
+crimson --assets-dir path/to/game_dir
+```
+
+This is useful if you have:
+- Original PAQ archives from the GOG release
+- Extracted assets in a custom location
+- Multiple asset versions for testing
+
+### Asset loading priority
+
+1. Extracted filesystem tree (if available)
+2. PAQ archives (`crimson.paq`, etc.)
+3. Auto-download missing assets (if permitted)
+
+## Logs and debugging
+
+Logs are stored in the `logs/` subdirectory of your runtime directory:
+
+```bash
+$CRIMSON_RUNTIME_DIR/logs/
+```
+
+Enable debug logging:
+
+```bash
+crimson --debug
+```
+
+This enables:
+- Debug overlays in-game
+- Verbose logging
+- Additional diagnostic information
+
+## Replay files
+
+Replays are automatically saved to:
+
+```bash
+$CRIMSON_RUNTIME_DIR/replays/
+```
+
+List available replays:
+
+```bash
+crimson replay list
+```
+
+Replays are deterministic recordings that can be:
+- Played back with `crimson replay play <file>`
+- Verified headlessly with `crimson replay verify <file>`
+- Rendered to video with `crimson replay render <file>`
+
+## Common patterns
+
+### Portable installation
+
+Create a self-contained installation:
+
+```bash
+mkdir crimson-portable
+cd crimson-portable
+export CRIMSON_RUNTIME_DIR="$PWD/runtime"
+uvx crimsonland@latest
+```
+
+### Multiple profiles
+
+Run with different save profiles:
+
+```bash
+# Profile 1
+CRIMSON_RUNTIME_DIR="$HOME/.crimson-profile1" crimson
+
+# Profile 2
+CRIMSON_RUNTIME_DIR="$HOME/.crimson-profile2" crimson
+```
+
+### Testing configuration
+
+Test with a clean runtime:
+
+```bash
+CRIMSON_RUNTIME_DIR="$(mktemp -d)" crimson --demo
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="CLI reference"
+    icon="terminal"
+    href="/cli/overview"
+  >
+    Explore all available commands and flags
+  </Card>
+  <Card
+    title="Assets setup"
+    icon="folder"
+    href="/advanced/assets"
+  >
+    Learn about PAQ archives and asset extraction
+  </Card>
+  <Card
+    title="Replays"
+    icon="clock-rotate-left"
+    href="/gameplay/replays"
+  >
+    Work with deterministic replay files
+  </Card>
+  <Card
+    title="Troubleshooting"
+    icon="wrench"
+    href="/help/troubleshooting"
+  >
+    Resolve common configuration issues
+  </Card>
+</CardGroup>

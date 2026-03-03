@@ -1,0 +1,335 @@
+---
+title: JAZ Texture Format
+description: Custom texture format combining JPEG color with RLE-compressed alpha channel
+---
+
+JAZ is Crimsonland's proprietary texture format that stores RGB color as JPEG and alpha transparency as run-length encoded data.
+
+## Format Overview
+
+JAZ files reduce texture size by:
+
+1. **Color**: Stored as lossy JPEG (small, good compression)
+2. **Alpha**: Stored as RLE-compressed bytes (lossless, efficient for large transparent areas)
+3. **Wrapper**: Zlib compression of the entire payload
+
+## Binary Layout
+
+<CodeGroup>
+```text Structure
+Offset  Size  Type   Description
+------  ----  ----   -----------
+0x00    1     u8     Compression method (1 = zlib)
+0x01    4     u32    Compressed payload size
+0x05    4     u32    Uncompressed payload size
+0x09    N     bytes  Zlib-compressed payload
+
+Decompressed payload:
+  0x00  4     u32    JPEG data length
+  0x04  L     bytes  JPEG image (RGB)
+  L+4   M     bytes  Alpha RLE (count,value pairs)
+```
+
+```c C Definition
+typedef struct {
+    uint8_t method;         // 1 = zlib
+    uint32_t comp_size;     // Compressed byte count
+    uint32_t raw_size;      // Uncompressed byte count
+    uint8_t compressed[];   // Zlib stream
+} jaz_header_t;
+
+typedef struct {
+    uint32_t jpeg_len;      // JPEG byte count
+    uint8_t jpeg_data[];    // JPEG stream
+    uint8_t alpha_rle[];    // RLE pairs (remainder)
+} jaz_payload_t;
+```
+</CodeGroup>
+
+## Compression Method
+
+**Field**: `method` (1 byte at offset 0x00)  
+**Value**: `0x01` = zlib compression  
+**Note**: Only method `1` is used in Crimsonland assets. Other values are unsupported.
+
+## Payload Sizes
+
+**comp_size** (`u32` at offset 0x01):  
+- Length of the zlib-compressed stream
+- Used to read the exact number of bytes for decompression
+
+**raw_size** (`u32` at offset 0x05):  
+- Expected size after zlib decompression
+- Validation: `len(decompressed) == raw_size`
+
+## JPEG Color Data
+
+The decompressed payload starts with a 4-byte length field, followed by a standard JPEG stream:
+
+**jpeg_len**: Number of bytes in the JPEG image  
+**jpeg_data**: Complete JPEG file (with SOI marker `0xffd8` and EOI marker `0xffd9`)
+
+The JPEG contains **RGB color only** (no alpha). Dimensions (width × height) are embedded in the JPEG metadata.
+
+## Alpha RLE Format
+
+After the JPEG data, the remainder of the payload is alpha channel data encoded as run-length pairs:
+
+```
+Alpha RLE: (count, value) byte pairs repeated
+
+Example:
+  0a ff   -> 10 pixels with alpha 255 (opaque)
+  05 00   -> 5 pixels with alpha 0 (transparent)
+  32 80   -> 50 pixels with alpha 128 (half-transparent)
+```
+
+### Decoding Algorithm
+
+```python
+def decode_alpha_rle(data: bytes, expected: int) -> bytes:
+    """Decode RLE alpha to raw byte array."""
+    out = bytearray(expected)
+    filled = 0
+    
+    for i in range(0, len(data) - 1, 2):
+        count = data[i]
+        value = data[i + 1]
+        
+        if count == 0:
+            continue  # Skip zero-length runs
+        
+        if filled >= expected:
+            break  # Already filled buffer
+        
+        end = min(filled + count, expected)
+        out[filled:end] = bytes([value]) * (end - filled)
+        filled = end
+    
+    return bytes(out)
+```
+
+**Expected length**: `width × height` (from JPEG dimensions)
+
+### Padding
+
+Most assets expand to exactly `width × height` bytes. **One known exception**: One file is short by 1 pixel.
+
+**Solution**: Pad with `0x00` (transparent) if RLE produces fewer bytes than expected.
+
+## Python Decoder
+
+The reference decoder is in `src/grim/jaz.py`:
+
+```python
+import io
+import zlib
+from PIL import Image
+from construct import Bytes, Int8ul, Int32ul, Struct, this
+
+JAZ_HEADER = Struct(
+    "method" / Int8ul,
+    "comp_size" / Int32ul,
+    "raw_size" / Int32ul,
+)
+
+JAZ_FILE = Struct(
+    "header" / JAZ_HEADER,
+    "compressed" / Bytes(this.header.comp_size),
+)
+
+def jaz_payload(raw_size: int) -> Struct:
+    return Struct(
+        "jpeg_len" / Int32ul,
+        "jpeg" / Bytes(this.jpeg_len),
+        "alpha_rle" / Bytes(raw_size - 4 - this.jpeg_len),
+    )
+
+class JazImage:
+    def __init__(self, width: int, height: int, jpeg: bytes, alpha: bytes):
+        self.width = width
+        self.height = height
+        self.jpeg = jpeg
+        self.alpha = alpha
+    
+    def composite_image(self) -> Image.Image:
+        """Combine JPEG RGB with decoded alpha."""
+        rgb = Image.open(io.BytesIO(self.jpeg)).convert("RGB")
+        alpha_img = Image.frombytes("L", (self.width, self.height), self.alpha)
+        rgb.putalpha(alpha_img)
+        return rgb
+
+def decode_jaz_bytes(data: bytes) -> JazImage:
+    parsed = JAZ_FILE.parse(data)
+    
+    if parsed.header.method != 1:
+        raise ValueError(f"Unsupported method: {parsed.header.method}")
+    
+    raw = zlib.decompress(parsed.compressed)
+    if len(raw) != parsed.header.raw_size:
+        raise ValueError(f"Size mismatch: {len(raw)} != {parsed.header.raw_size}")
+    
+    payload = jaz_payload(parsed.header.raw_size).parse(raw)
+    
+    # Decode JPEG to get dimensions
+    img = Image.open(io.BytesIO(payload.jpeg))
+    width, height = img.size
+    
+    # Decode alpha RLE
+    alpha = decode_alpha_rle(payload.alpha_rle, width * height)
+    
+    return JazImage(width, height, payload.jpeg, alpha)
+```
+
+### Usage
+
+**Decode to PIL Image**:
+```python
+from grim.jaz import decode_jaz
+
+jaz_img = decode_jaz("bodies0.jaz")
+pil_img = jaz_img.composite_image()  # RGBA Image
+pil_img.save("bodies0.png")
+```
+
+**Extract from PAQ and convert**:
+```bash
+uv run crimson extract /path/to/game_dir artifacts/assets
+# Automatically converts all .jaz -> .png
+```
+
+## Example File
+
+Hex dump of `small_sprite.jaz`:
+
+```
+Offset  Hex                                          ASCII
+------  -----------------------------------------   -----
+0x000   01                                           .       (method=1)
+0x001   a3 0f 00 00                                  ....    (comp_size=4003)
+0x005   c8 0f 00 00                                  ....    (raw_size=4040)
+0x009   78 9c ... (zlib stream, 4003 bytes)
+
+Decompressed payload:
+0x000   d4 0e 00 00                                  ....    (jpeg_len=3796)
+0x004   ff d8 ff e0 ... (JPEG data, 3796 bytes)
+0xed4   20 ff 18 00 14 ff ...                        ....    (alpha RLE)
+```
+
+**Parsing**:
+1. Method: `0x01` (zlib) ✓
+2. Decompress 4003 bytes → 4040 bytes
+3. JPEG length: 3796 bytes
+4. Alpha RLE: `4040 - 4 - 3796 = 240` bytes
+5. Decode JPEG → 64×64 RGB image
+6. Decode RLE → 4096 alpha bytes (64×64)
+7. Combine → 64×64 RGBA image
+
+## Known JAZ Files
+
+Commonly found in `crimson.paq`:
+
+<Accordion title="Creature Sprites">
+  - `game/bodies0.jaz` through `game/bodies7.jaz`
+  - Each atlas contains multiple creature sprites
+  - Dimensions: 512×512 or 1024×512
+</Accordion>
+
+<Accordion title="Blood and Gore">
+  - `game/blood0.jaz`, `game/blood1.jaz`
+  - Splatter and corpse decals
+  - Dimensions: 512×512
+</Accordion>
+
+<Accordion title="Terrain">
+  - `game/terrain.jaz`
+  - Background tiles
+  - Dimensions: 256×256
+</Accordion>
+
+<Accordion title="UI Elements">
+  - `ui/panel_*.jaz`
+  - Menu backgrounds with transparency
+  - Dimensions: Vary (256×256 to 512×512)
+</Accordion>
+
+## Why JAZ?
+
+<CardGroup cols={2}>
+  <Card title="Advantages" icon="check">
+    - **Small color data**: JPEG is compact for photos/textures
+    - **Lossless alpha**: RLE preserves sharp transparency edges
+    - **Fast decode**: JPEG decoding is hardware-accelerated
+    - **Good for sprites**: Large transparent areas compress well with RLE
+  </Card>
+  <Card title="Disadvantages" icon="xmark">
+    - **JPEG artifacts**: Color data has compression artifacts
+    - **No PNG features**: No indexed color, no metadata
+    - **Custom format**: No tool support (requires custom decoder)
+  </Card>
+</CardGroup>
+
+**Design rationale**: In 2003, JPEG was ubiquitous and fast, but didn't support alpha. JAZ adds alpha while keeping JPEG's compression benefits.
+
+## Comparison with Modern Formats
+
+| Feature | JAZ | PNG | WebP |
+|---------|-----|-----|------|
+| Color compression | JPEG (lossy) | DEFLATE (lossless) | VP8 (lossy/lossless) |
+| Alpha compression | RLE | DEFLATE | VP8L |
+| File size | Small | Medium | Very small |
+| Quality | Lossy color | Lossless | Configurable |
+| Tool support | None | Universal | Growing |
+| Decode speed | Fast | Medium | Fast |
+
+**Modern choice**: WebP or PNG would replace JAZ today, but JAZ was reasonable for 2003.
+
+## Edge Cases
+
+### Short Alpha Data
+
+One asset (`game/blood1.jaz` entry 5) produces 4095 alpha bytes instead of 4096:
+
+```python
+expected = width * height  # 64 * 64 = 4096
+alpha = decode_alpha_rle(rle_data, expected)  # Returns 4095 bytes
+
+# Pad with transparent:
+if len(alpha) < expected:
+    alpha += b'\x00' * (expected - len(alpha))
+```
+
+This is handled automatically in the decoder.
+
+### Method Field
+
+Only method `1` (zlib) is used. Other values should raise an error:
+
+```python
+if method != 1:
+    raise ValueError(f"Unsupported compression method: {method}")
+```
+
+## Related Formats
+
+<CardGroup cols={2}>
+  <Card title="PAQ Archives" href="/reverse-engineering/formats/paq-archives">
+    Container format for JAZ and other assets
+  </Card>
+  <Card title="Sprite Atlas" href="/formats/atlas">
+    How sprites are cut from decoded JAZ textures
+  </Card>
+</CardGroup>
+
+## Implementation Notes
+
+- Decoder uses PIL (Pillow) for JPEG parsing
+- Alpha RLE is custom (not a standard RLE variant)
+- The extractor automatically converts JAZ → PNG with alpha
+- Original engine uses embedded libjpeg and libpng
+
+## References
+
+- Source: `src/grim/jaz.py`
+- Tests: `tests/test_jaz.py`
+- CLI: `src/crimson/cli.py` (`extract` command)

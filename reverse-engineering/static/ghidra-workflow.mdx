@@ -1,0 +1,411 @@
+---
+title: Ghidra Workflow
+description: Static analysis workflow using Ghidra for decompilation and symbol recovery
+---
+
+This page documents the Ghidra-based static analysis workflow used to decompile and annotate the Crimsonland binaries.
+
+## Setup
+
+### Binary Information
+
+<CodeGroup>
+```text crimsonland.exe
+Compiler: Visual Studio 2003 (VC++ 7.1 SP1)
+Build: 2011-02-01 07:13:37 UTC
+Image Base: 0x00400000 (fixed, no ASLR)
+Entry Point: 0x00463026
+Sections:
+  .text:  0x401000 - 450KB code
+  .data:  0x471000 - 435KB (378KB BSS)
+  .rdata: 0x46f000 - 7KB
+  .rsrc:  0x4dd000 - 7KB
+```
+
+```text grim.dll
+Compiler: Visual Studio 2003 (VC++ 7.1 SP1)  
+Build: 2011-02-01 07:25:24 UTC
+Image Base: 0x10000000 (relocatable)
+Entry Point: 0x1000a9e9
+Export: GRIM__GetInterface @ 0x100099c0
+Sections:
+  .text:  0x10001000 - 306KB code
+  .data:  0x10053000 - 44KB
+  .rdata: 0x1004c000 - 25KB
+  .reloc: 0x1008e000 - 14KB
+```
+</CodeGroup>
+
+### Project Import
+
+1. **Import Binary**
+   - Language: `x86:LE:32:default`
+   - Format: `Portable Executable (PE)`
+   - Apply default analysis
+
+2. **Apply Third-Party Headers**
+
+   Import Windows API and DirectX type definitions:
+
+   ```java
+   // ApplyWinapiGDT.java
+   GhidraScript script;
+   DataTypeManager winapi = script.openDataTypeArchive("winapi_32.gdt", false);
+   CategoryPath root = new CategoryPath("/");
+   program.getDataTypeManager().addDataTypes(winapi, root, ...);
+   ```
+
+   Location: `analysis/ghidra/maps/winapi_32.gdt`
+
+## Symbol Recovery Process
+
+### Name Maps (Source of Truth)
+
+All recovered symbols are stored in JSON maps:
+
+**Function and Global Names**
+
+```json
+// analysis/ghidra/maps/name_map.json
+{
+  "0x004136b0": "player_update",
+  "0x00420b90": "projectile_update",
+  "0x0041e910": "creature_handle_death",
+  "0x00480348": "config_blob",
+  "0x004908d4": "player_health",
+  "0x004926b8": "projectile_pool"
+}
+```
+
+**Data Structure Definitions**
+
+```json
+// analysis/ghidra/maps/data_map.json
+{
+  "0x00480348": {
+    "type": "struct crimson_cfg_t",
+    "size": 1152,
+    "fields": [
+      {"offset": 0, "name": "sound_disabled", "type": "u8"},
+      {"offset": 1, "name": "music_disabled", "type": "u8"},
+      {"offset": 436, "name": "screen_width", "type": "i32"},
+      {"offset": 440, "name": "screen_height", "type": "i32"}
+    ]
+  }
+}
+```
+
+### Applying Name Maps
+
+Use Ghidra scripts to apply recovered names:
+
+```java
+// ApplyNameMap.java
+for (Map.Entry<String, String> entry : nameMap.entrySet()) {
+    Address addr = parseAddress(entry.getKey());
+    String name = entry.getValue();
+    
+    Function func = getFunctionAt(addr);
+    if (func != null) {
+        func.setName(name, SourceType.USER_DEFINED);
+    } else {
+        createLabel(addr, name, true);
+    }
+}
+```
+
+Run via headless analyzer:
+
+```bash
+just ghidra-exe  # Applies name_map.json and regenerates decompile
+```
+
+## Decompilation Workflow
+
+### Export Raw Decompilation
+
+```java
+// ExportDecompiled.java
+DecompInterface decompiler = new DecompInterface();
+decompiler.openProgram(currentProgram);
+
+for (Function func : currentProgram.getFunctionManager().getFunctions(true)) {
+    DecompileResults results = decompiler.decompileFunction(func, 30, monitor);
+    String c = results.getDecompiledFunction().getC();
+    writer.write(c);
+}
+```
+
+**Output**: `analysis/ghidra/raw/crimsonland.exe_decompiled.c` (~50K lines)
+
+### Hotspot Extraction
+
+For deep analysis of specific subsystems, extract focused function subgraphs:
+
+```bash
+uv run scripts/ghidra_hotspot_extract.py \
+  --source analysis/ghidra/raw/crimsonland.exe_decompiled.c \
+  --function projectile_update \
+  --depth 1 \
+  --name-map analysis/ghidra/maps/name_map.json \
+  --out analysis/ghidra/derived/hotspots/projectile_update/
+```
+
+**Result**:
+```
+hotspots/projectile_update/
+├── functions/
+│   ├── 00420b90_projectile_update.c  # Main function
+│   ├── 004207c0_creature_apply_damage.c  # Direct callee
+│   └── 0041fbb0_fx_spawn_sprite.c  # Direct callee
+├── work/
+│   ├── 00420b90_projectile_update.work.c  # Editable copy
+│   ├── local_renames.json  # Local variable names
+│   └── renaming_guide.md  # Annotation notes
+├── callgraph.txt
+└── README.md
+```
+
+## Naming Conventions
+
+### Function Prefixes
+
+| Prefix | Subsystem | Example |
+|--------|-----------|----------|
+| `player_` | Player state/actions | `player_update`, `player_take_damage` |
+| `creature_` | Enemy AI/pool | `creature_spawn`, `creature_update` |
+| `projectile_` | Bullet physics | `projectile_spawn`, `projectile_update` |
+| `weapon_` | Weapon system | `weapon_assign_player`, `weapon_fire` |
+| `perk_` | Perk effects | `perk_count_get`, `perk_apply_effect` |
+| `bonus_` | Pickup items | `bonus_spawn`, `bonus_apply` |
+| `effect_` | Visual effects | `effect_spawn`, `effect_spawn_blood_splatter` |
+| `fx_` | FX queue/pools | `fx_queue_add`, `fx_spawn_sprite` |
+| `config_` | Configuration | `config_load_presets`, `config_sync_from_grim` |
+| `grim_` | Grim2D engine | `grim_sprite_draw`, `grim_set_color` |
+| `sfx_` | Audio playback | `sfx_play_panned`, `sfx_play_exclusive` |
+| `ui_` | UI rendering | `ui_panel_render`, `ui_text_draw` |
+
+### Global Naming
+
+Use descriptive names with subsystem prefixes:
+
+```c
+// Pools (base addresses)
+DAT_004908d4 → player_health  // Player state table base
+DAT_004926b8 → projectile_pool
+DAT_00493eb8 → particle_pool
+
+// Config and state
+DAT_00480348 → config_blob
+DAT_00485540 → game_status_blob
+
+// Tables
+DAT_004d7a28 → weapon_ammo_class
+DAT_00482764 → creature_type_table
+```
+
+## Struct Recovery
+
+### Identifying Pool Layouts
+
+Look for repeated stride patterns:
+
+```c
+// Access pattern: base + index * stride
+float health = *(float*)(0x004908d4 + player_idx * 0x360);
+float pos_x = *(float*)(0x004908d4 + player_idx * 0x360 - 0x10);
+```
+
+**Infer**: 
+- Pool base: `0x004908d4` 
+- Entry size: `0x360` bytes
+- Field offsets: `0x00` (health), `-0x10` (pos_x)
+
+### Array-of-Structs vs Structure-of-Arrays
+
+**AoS** (projectiles, creatures):
+```c
+struct projectile_t {
+    u8 active;
+    float angle;
+    float pos_x;
+    float pos_y;
+    // ... 0x40 bytes total
+};
+projectile_t projectile_pool[0x60];
+```
+
+**SoA** (FX queue):
+```c
+float fx_queue_pos_x[0x80];
+float fx_queue_pos_y[0x80];
+float fx_queue_color_r[0x80];
+// Indexed: fx_queue_pos_x[i], fx_queue_color_r[i]
+```
+
+### VTable Analysis
+
+Grim2D uses a single large vtable:
+
+```c
+// GRIM__GetInterface @ 0x100099c0 returns:
+void** vtable = (void**)0x1004c238;  // 84 function pointers
+
+// Example entries:
+vtable[0]  = grim_init
+vtable[12] = grim_sprite_draw
+vtable[23] = grim_set_color
+vtable[45] = grim_texture_load
+```
+
+See the Grim engine module source code at `~/workspace/source/src/grim/` for the reimplemented API surface.
+
+## Common Patterns
+
+### Loop Over Pool
+
+```c
+for (int i = 0; i < 0x60; i++) {
+    if (projectile_pool[i].active) {
+        // Update logic
+    }
+}
+```
+
+### Damage Calculation
+
+```c
+float damage = base_damage * perk_multiplier;
+if (player_reload_active && has_perk(TOUGH_RELOADER)) {
+    damage *= 0.5;
+}
+creature_health -= damage;
+```
+
+### State Machine
+
+```c
+switch (game_state) {
+    case 0x01: // Main menu
+        main_menu_update();
+        break;
+    case 0x03: // Playing
+        gameplay_update();
+        break;
+    case 0x0a: // Game over
+        game_over_update();
+        break;
+}
+```
+
+## Verification Against Runtime
+
+After naming functions/structs, verify with Frida:
+
+```javascript
+// Hook renamed function
+const projectileUpdateAddr = ptr("0x00420b90");
+Interceptor.attach(projectileUpdateAddr, {
+  onEnter: function(args) {
+    console.log("projectile_update called");
+    
+    // Read projectile_pool[0].pos_x at offset 0x08
+    const pool = ptr("0x004926b8");
+    const pos_x = pool.add(0x08).readFloat();
+    console.log("  projectile[0].pos_x =", pos_x);
+  }
+});
+```
+
+If runtime values don't match expected offsets, adjust struct definitions.
+
+## Ghidra Scripts
+
+Key automation scripts in `analysis/ghidra/scripts/`:
+
+### ApplyNameMap.java
+
+Reads `name_map.json` and applies function/label names.
+
+### ApplyDataMap.java
+
+Creates struct definitions from `data_map.json`.
+
+### ExportDecompiled.java
+
+Exports full decompiled C code to `raw/`.
+
+### ExportFunctions.json
+
+Exports function metadata (address, name, size, calls) to JSON.
+
+### CreateQuestBuilders.java
+
+Specialized script to annotate quest spawn functions with level metadata.
+
+## Headless Analysis
+
+Run Ghidra analysis without GUI:
+
+```bash
+# Apply maps and export decompile
+./analysis/ghidra/tooling/ghidra-analyze.sh \
+  crimsonland.exe \
+  analysis/ghidra/scripts/ApplyNameMap.java \
+  analysis/ghidra/scripts/ExportDecompiled.java
+```
+
+Shortcut:
+```bash
+just ghidra-exe  # Runs full analysis pipeline
+```
+
+## Output Artifacts
+
+### Raw Decompile
+
+`analysis/ghidra/raw/crimsonland.exe_decompiled.c` - Full program decompiled to C.
+
+### Function Metadata
+
+`analysis/ghidra/raw/crimsonland.exe_functions.json` - Function table with addresses, names, sizes.
+
+### Strings and Symbols
+
+`analysis/ghidra/raw/crimsonland.exe_strings.txt` - All embedded strings for grep.
+
+### Summary Report
+
+`analysis/ghidra/raw/crimsonland.exe_summary.txt` - Analysis statistics and coverage.
+
+## Tips
+
+<Tip>
+  **Start with high-level systems** (game loop, state machine) and work down to details (weapon fire, projectile update).
+</Tip>
+
+<Tip>
+  **Use cross-references** (`Ctrl+Shift+F` in Ghidra) to find all uses of a global or function.
+</Tip>
+
+<Tip>
+  **Keep maps in sync** - After renaming in Ghidra, export to `name_map.json` so it persists across sessions.
+</Tip>
+
+<Warning>
+  Never edit `analysis/ghidra/raw/` files directly - they're regenerated. Edit maps and re-export.
+</Warning>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Decompilation Process" href="/reverse-engineering/static/decompilation">
+    Understanding Ghidra's decompiler output
+  </Card>
+  <Card title="Struct Recovery" href="/reverse-engineering/static/struct-recovery">
+    Techniques for reconstructing data structures
+  </Card>
+  <Card title="Binary Analysis" href="/reverse-engineering/static/binary-analysis">
+    Low-level binary properties and compiler artifacts
+  </Card>
+</CardGroup>

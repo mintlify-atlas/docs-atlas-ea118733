@@ -1,0 +1,456 @@
+---
+title: Code Style
+description: Coding standards and style guidelines for the Crimsonland project
+---
+
+The Crimsonland project enforces strict code style to maintain consistency, readability, and correctness.
+
+## Automated Enforcement
+
+Code style is enforced automatically:
+
+```bash
+# Check all style requirements
+just check
+
+# Or individually
+uv run ruff check .              # Linting
+uv run ty check src tests        # Type checking
+uv run lint-imports              # Import contracts
+sg scan                          # Structural rules
+```
+
+## Linting (Ruff)
+
+The project uses [ruff](https://github.com/astral-sh/ruff) for fast linting.
+
+### Configuration
+
+From `pyproject.toml`:
+
+```toml
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = [
+    "B007",   # Loop variable not used
+    "B017",   # assertRaises(Exception) is too broad
+    "B023",   # Function uses loop variable
+    "B904",   # Raise from None
+    "COM812", # Trailing comma missing
+    "I001",   # Import sorting
+    "PGH003", # Type ignore without code
+    "PT017",  # pytest.raises() without match
+    "RUF012", # Mutable class attributes
+    "RUF100", # Unused noqa
+    "S113",   # Timeout without timeout
+    "S607",   # Starting process with partial path
+    "TRY004", # Prefer TypeError for type errors
+    "UP035",  # Import from collections.abc
+]
+extend-ignore = ["E402"]  # Module level import not at top
+```
+
+### Auto-Fixing
+
+Most issues can be auto-fixed:
+
+```bash
+uv run ruff check --fix .
+```
+
+### Line Length
+
+Maximum line length is **120 characters**. Break long lines:
+
+```python
+# Good
+def create_weapon(
+    weapon_type: str,
+    damage: float,
+    fire_rate: float,
+    ammo_capacity: int,
+) -> Weapon:
+    return Weapon(weapon_type, damage, fire_rate, ammo_capacity)
+
+# Bad - exceeds 120 characters
+def create_weapon(weapon_type: str, damage: float, fire_rate: float, ammo_capacity: int) -> Weapon:
+    return Weapon(weapon_type, damage, fire_rate, ammo_capacity)
+```
+
+### Import Sorting
+
+Imports are sorted automatically:
+
+```python
+# Standard library
+import math
+import os
+from pathlib import Path
+
+# Third-party
+import msgspec
+import pytest
+from construct import Struct
+
+# Local
+from crimson.gameplay import GameState
+from grim.audio import AudioManager
+```
+
+## Type Checking (ty)
+
+The project uses [ty](https://github.com/evanr70/ty) for fast type checking.
+
+### Type Annotations Required
+
+All functions must have type annotations:
+
+```python
+# Good
+def calculate_damage(base_damage: float, distance: float) -> float:
+    return base_damage * (1.0 - distance / 1000.0)
+
+# Bad - missing annotations
+def calculate_damage(base_damage, distance):
+    return base_damage * (1.0 - distance / 1000.0)
+```
+
+### No `Any` Without Justification
+
+<Warning>
+Avoid `Any`. If `ty` complains, fix the schema/boundary/model, don't cast to `Any`.
+</Warning>
+
+```python
+# Bad - dodges typing
+from typing import Any
+
+def process_data(data: Any) -> Any:
+    return data.get("value")  # Unsafe!
+
+# Good - proper typing
+from msgspec import Struct
+
+class GameData(Struct):
+    value: float
+
+def process_data(data: GameData) -> float:
+    return data.value
+```
+
+### Type Guards
+
+Use type guards for conditional typing:
+
+```python
+from typing import Union
+
+def process_entity(entity: Union[Player, Creature]) -> None:
+    if isinstance(entity, Player):
+        # Type narrowed to Player
+        entity.award_experience(100)
+    else:
+        # Type narrowed to Creature
+        entity.apply_damage(50)
+```
+
+## Import Contracts
+
+Architectural boundaries are enforced by `import-linter`.
+
+### Layer Separation
+
+<AccordionGroup>
+  <Accordion title="grim must not import crimson">
+    The engine layer (`grim`) is independent of game logic (`crimson`):
+    
+    ```python
+    # In grim/audio.py - GOOD
+    from grim.formats import load_wav
+    
+    # In grim/audio.py - BAD
+    from crimson.gameplay import GameState  # ❌ Violates boundary
+    ```
+  </Accordion>
+  
+  <Accordion title="Perk implementations isolated">
+    Perk implementations must not import selection/availability logic:
+    
+    ```python
+    # In crimson/perks/impl/berserk.py - GOOD
+    from crimson.perks.runtime import PerkEffect
+    
+    # In crimson/perks/impl/berserk.py - BAD
+    from crimson.perks.selection import PerkSelector  # ❌ Violates isolation
+    ```
+  </Accordion>
+  
+  <Accordion title="Selection/availability independence">
+    Selection and availability must not import implementations directly:
+    
+    ```python
+    # In crimson/perks/selection.py - GOOD
+    from crimson.perks.registry import get_perk_by_id
+    
+    # In crimson/perks/selection.py - BAD
+    from crimson.perks.impl.berserk import BerserkPerk  # ❌ Violates independence
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Verify Contracts
+
+```bash
+uv run lint-imports
+```
+
+## Code Patterns
+
+### Validate at Boundaries
+
+<Tip>
+Validate/parse at boundaries (IO/CLI/JSON/msgpack). Inside the domain, assume typed objects are correct.
+</Tip>
+
+```python
+# Boundary - parse and validate
+def load_config(path: Path) -> Config:
+    data = msgspec.json.decode(path.read_bytes(), type=Config)
+    # Validation happens here via msgspec
+    return data
+
+# Domain - trust typed inputs
+def apply_config(config: Config) -> None:
+    # No .get(), no isinstance(), no try/except
+    # Just use the typed object
+    screen_width = config.screen_width
+    screen_height = config.screen_height
+```
+
+### Fail Fast on Invalid State
+
+```python
+# Good - fail fast
+def get_weapon(weapon_id: int) -> Weapon:
+    if weapon_id not in WEAPON_TABLE:
+        raise ValueError(f"Invalid weapon_id: {weapon_id}")
+    return WEAPON_TABLE[weapon_id]
+
+# Bad - hides errors with defaults
+def get_weapon(weapon_id: int) -> Weapon:
+    return WEAPON_TABLE.get(weapon_id, DEFAULT_WEAPON)  # ❌ Silent failure
+```
+
+### No Defensive Coding in Domain
+
+Avoid defensive checks deep in gameplay code:
+
+```python
+# Bad - defensive checks in domain
+def update_creature(creature: Creature, dt: float) -> None:
+    if not isinstance(creature, Creature):  # ❌ Unnecessary
+        return
+    if not hasattr(creature, "health"):     # ❌ Dodge typing
+        return
+    try:
+        creature.move(dt)                   # ❌ Broad exception
+    except ValueError:
+        pass
+
+# Good - trust types, fail fast
+def update_creature(creature: Creature, dt: float) -> None:
+    creature.move(dt)  # Type system ensures creature has move()
+```
+
+### Typed Domain, Dict at Edges
+
+```python
+# Domain - typed objects
+class GameState(Struct):
+    score: int
+    wave: int
+    player_health: float
+
+# Edge - convert to dict for serialization
+def save_game(state: GameState, path: Path) -> None:
+    data = msgspec.to_builtins(state)  # Convert to dict
+    path.write_bytes(msgspec.json.encode(data))
+```
+
+## Naming Conventions
+
+### Variables and Functions
+
+```python
+# Snake case for variables and functions
+player_health = 100.0
+weapon_damage = 75.0
+
+def calculate_distance(x1: float, y1: float, x2: float, y2: float) -> float:
+    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+```
+
+### Classes and Types
+
+```python
+# Pascal case for classes
+class WeaponSystem:
+    pass
+
+class GameState(Struct):
+    pass
+```
+
+### Constants
+
+```python
+# UPPER_SNAKE_CASE for module-level constants
+MAX_CREATURES = 100
+DEFAULT_DIFFICULTY = "normal"
+PI = 3.1415927  # Native f32 precision
+```
+
+### Private Members
+
+```python
+# Single underscore for internal implementation
+class Weapon:
+    def __init__(self):
+        self._ammo_count = 0  # Internal state
+    
+    def _reload_internal(self) -> None:  # Internal method
+        self._ammo_count = self.max_ammo
+```
+
+## Documentation
+
+### Docstrings
+
+Use docstrings for public APIs:
+
+```python
+def calculate_damage(base_damage: float, distance: float) -> float:
+    """Calculate damage with distance falloff.
+    
+    Args:
+        base_damage: Base weapon damage
+        distance: Distance to target in pixels
+    
+    Returns:
+        Effective damage after distance falloff
+    
+    Evidence:
+        analysis/ghidra/raw/crimsonland.exe_decompiled.c:5432
+    """
+    return base_damage * (1.0 - distance / 1000.0)
+```
+
+### Parity Evidence
+
+For parity-critical code, document evidence:
+
+```python
+def angle_approach(current: float, target: float, rate: float) -> float:
+    """Approach target angle at given rate (native parity).
+    
+    Native behavior: x87 intermediate with f32 storage.
+    Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:21767
+    Differential session: docs/frida/differential-sessions/session-18.md
+    
+    Args:
+        current: Current angle in radians
+        target: Target angle in radians
+        rate: Approach rate
+    
+    Returns:
+        New angle after approach
+    """
+    # Implementation
+```
+
+## Comments
+
+### When to Comment
+
+<Tabs>
+  <Tab title="Parity Justification">
+    Explain why code looks "wrong" due to native parity:
+    
+    ```python
+    # Native constant - do not normalize to 0.6
+    # Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:8765
+    WEAPON_COOLDOWN = 0.6000000238418579
+    ```
+  </Tab>
+  
+  <Tab title="Non-Obvious Behavior">
+    Explain surprising behavior:
+    
+    ```python
+    # RNG is consumed even when creature doesn't spawn
+    # This matches native behavior for determinism
+    self.rng.next_u32()
+    if not should_spawn:
+        return None
+    ```
+  </Tab>
+  
+  <Tab title="Temporary Code">
+    Mark temporary code clearly:
+    
+    ```python
+    # TODO: Replace with native parity version after session-25
+    # Current implementation is placeholder
+    def temp_collision_check():
+        pass
+    ```
+  </Tab>
+</Tabs>
+
+### When Not to Comment
+
+<Warning>
+Don't comment obvious code. Let the code speak:
+</Warning>
+
+```python
+# Bad - comments state the obvious
+# Increment score by 100
+score += 100
+
+# Good - code is self-documenting
+score += ENEMY_KILL_POINTS
+```
+
+## Structural Rules (ast-grep)
+
+Structural patterns are enforced via `ast-grep`:
+
+```bash
+sg scan                          # Run configured rules
+sg test                          # Test rules
+```
+
+Rules are defined in `.ast-grep/` (if present) or via CLI.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Float Parity Policy" icon="calculator" href="/contributing/guidelines/float-parity">
+    Master float32 precision requirements
+  </Card>
+  
+  <Card title="Commit Guidelines" icon="git-alt" href="/contributing/guidelines/commits">
+    Write meaningful commit messages
+  </Card>
+  
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Write well-styled tests
+  </Card>
+  
+  <Card title="Verification Process" icon="check-double" href="/contributing/dev/verification">
+    Ensure code passes all checks
+  </Card>
+</CardGroup>

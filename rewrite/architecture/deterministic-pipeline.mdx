@@ -1,0 +1,434 @@
+---
+title: Deterministic Step Pipeline
+description: Per-tick contract for deterministic simulation and replay verification
+---
+
+The deterministic step pipeline defines the per-tick contract shared by:
+
+- Playable runtime (`GameWorld.update`)
+- Replay verification runners (`sim/runners/*`)
+- Replay playback mode (`modes/replay_playback_mode.py`)
+
+Implementation: `src/crimson/sim/step_pipeline.py`
+
+## Tick Contract
+
+Each tick executes three phases:
+
+<Steps>
+  <Step title="Input Normalization">
+    Multiplayer inputs are normalized into a fixed-length frame.
+  </Step>
+  <Step title="Deterministic Simulation">
+    Core gameplay update using `WorldState.step()`.
+  </Step>
+  <Step title="Presentation Planning">
+    Deterministic presentation commands are generated.
+  </Step>
+</Steps>
+
+## Step Pipeline
+
+```python src/crimson/sim/step_pipeline.py
+def run_deterministic_step(
+    *,
+    world: WorldState,
+    timing: FrameTiming,
+    options: StepPipelineOptions,
+    inputs: list[PlayerInput] | None,
+    fx_queue: FxQueue,
+    fx_queue_rotated: FxQueueRotated,
+) -> DeterministicStepResult:
+    """Run one deterministic tick and return events + presentation."""
+    
+    # 1. Normalize inputs
+    inputs = normalize_input_frame(
+        inputs, 
+        player_count=len(world.players)
+    ).as_list()
+    
+    # 2. Run core simulation
+    events = world.step(
+        timing.dt_sim,
+        inputs=inputs,
+        world_size=options.world_size,
+        game_mode=options.game_mode,
+        fx_queue=fx_queue,
+        fx_queue_rotated=fx_queue_rotated,
+        ...
+    )
+    
+    # 3. Plan presentation commands
+    presentation = apply_world_presentation_step(
+        state=world.state,
+        players=world.players,
+        hits=events.hits,
+        deaths=events.deaths,
+        pickups=events.pickups,
+        ...
+    )
+    
+    # 4. Compute command hash for verification
+    command_hash = presentation_commands_hash(presentation)
+    
+    return DeterministicStepResult(
+        dt_sim=timing.dt_sim,
+        timing=timing,
+        events=events,
+        presentation=presentation,
+        command_hash=command_hash,
+    )
+```
+
+## Deterministic Step Result
+
+```python
+class DeterministicStepResult(msgspec.Struct):
+    dt_sim: float                           # Effective dt after Reflex Boost
+    timing: FrameTiming                     # Frame timing details
+    events: WorldEvents                     # Sim events (hits, deaths, pickups)
+    presentation: PresentationStepCommands  # Audio/visual commands
+    command_hash: str                       # Stable checksum
+    presentation_rng_trace: PresentationRngTrace  # Debug trace
+```
+
+## World Step
+
+The core simulation step runs in `WorldState.step()`:
+
+```python src/crimson/sim/world_state.py
+class WorldState:
+    def step(
+        self,
+        dt: float,
+        *,
+        inputs: list[PlayerInput],
+        # ... params
+    ) -> WorldEvents:
+        """Run one deterministic simulation tick."""
+        
+        # Phase 1: World dt hooks (Reflex Boost time scaling)
+        for hook in WORLD_DT_STEPS:
+            dt = hook.apply(self, dt)
+        
+        # Phase 2: Perk effects (Evil Eyes, Doctor, Jinxed)
+        perks_update_effects(self.state, self.players, ...)
+        
+        # Phase 3: Player updates
+        for player, input in zip(self.players, inputs):
+            player_update(player, self.state, dt, input, ...)
+        
+        # Phase 4: Projectile updates
+        hits = self.state.projectiles.update(...)
+        
+        # Phase 5: Creature updates
+        deaths = self.creatures.update(...)
+        
+        # Phase 6: Bonus updates
+        pickups = bonus_update(self.state, self.players, ...)
+        
+        # Phase 7: Player death hooks (Final Revenge)
+        for player in self.players:
+            if player_died_this_tick(player):
+                for hook in PLAYER_DEATH_HOOKS:
+                    hook.apply(self, player)
+        
+        # Phase 8: Effects update
+        self.state.effects.update(dt)
+        
+        return WorldEvents(
+            hits=hits,
+            deaths=deaths,
+            pickups=pickups,
+            sfx=sfx_events,
+        )
+```
+
+<Note>
+  **All phases use the same RNG stream (`state.rng`)** to ensure deterministic replay.
+</Note>
+
+## Presentation Step
+
+Presentation commands are planned deterministically:
+
+```python src/crimson/sim/presentation_step.py
+def apply_world_presentation_step(
+    *,
+    state: GameplayState,
+    players: list[PlayerState],
+    hits: list[ProjectileHit],
+    deaths: tuple[CreatureDeath, ...],
+    pickups: list[BonusPickupEvent],
+    prev_audio: list[tuple],
+    rand: Callable[[], int],
+    ...
+) -> PresentationStepCommands:
+    """Plan deterministic presentation commands."""
+    
+    sfx_keys: list[str] = []
+    
+    # Player audio (weapon fire, reload)
+    for player, (prev_shot, prev_reload, prev_timer) in zip(players, prev_audio):
+        sfx_keys.extend(plan_player_audio_sfx(
+            player,
+            prev_shot_seq=prev_shot,
+            prev_reload_active=prev_reload,
+            prev_reload_timer=prev_timer,
+        ))
+    
+    # Hit SFX (capped at 4 per frame)
+    sfx_keys.extend(plan_hit_sfx_keys(
+        hits, 
+        game_mode=game_mode,
+        rand=rand,
+    )[:4])
+    
+    # Death SFX (capped at 5 per frame)
+    sfx_keys.extend(plan_death_sfx_keys(
+        deaths,
+        rand=rand,
+    )[:5])
+    
+    # Bonus pickup SFX
+    for pickup in pickups:
+        sfx_keys.append(bonus_pickup_sfx_key(pickup))
+    
+    # Game tune trigger (first hit in Survival)
+    trigger_game_tune = should_trigger_game_tune(
+        hits=hits,
+        game_mode=game_mode,
+        demo_mode_active=demo_mode_active,
+        game_tune_started=game_tune_started,
+    )
+    
+    return PresentationStepCommands(
+        trigger_game_tune=trigger_game_tune,
+        sfx_keys=sfx_keys,
+    )
+```
+
+<Warning>
+  Presentation must be deterministic. Use `rand` parameter (seeded RNG), not `random.random()`.
+</Warning>
+
+## Feature Hook Topology
+
+The pipeline dispatches behavior through explicit hook registries:
+
+### Perk World-Step Hooks
+
+```python src/crimson/perks/runtime/manifest.py
+WORLD_DT_STEPS = [
+    reflex_boost_dt_hook,  # Time scaling
+]
+```
+
+**Contract:** `src/crimson/perks/runtime/hook_types.py`
+
+```python
+class WorldDtHook(Protocol):
+    def apply(self, world: WorldState, dt: float) -> float:
+        """Transform frame dt (e.g., Reflex Boost scaling)."""
+        ...
+```
+
+### Player Death Hooks
+
+```python src/crimson/perks/runtime/manifest.py
+PLAYER_DEATH_HOOKS = [
+    final_revenge_death_hook,  # Explosion on death
+]
+```
+
+**Contract:**
+
+```python
+class PlayerDeathHook(Protocol):
+    def apply(self, world: WorldState, player: PlayerState) -> None:
+        """Handle player death (e.g., Final Revenge burst)."""
+        ...
+```
+
+### Bonus Pickup Effects
+
+```python src/crimson/bonuses/pickup_fx.py
+BONUS_PICKUP_FX_HOOKS = [
+    freeze_ring_effect,
+    reflex_boost_ring_effect,
+]
+```
+
+### Projectile Decal Hooks
+
+```python src/crimson/features/presentation/projectile_decals.py
+PROJECTILE_DECAL_HOOKS = [
+    fire_bullets_large_streak,
+    gauss_large_streak,
+]
+```
+
+## RNG Policy
+
+The pipeline uses **one authoritative RNG stream**:
+
+```python
+# Single RNG for simulation + presentation
+rng = state.rng
+
+# All draws use this stream
+value = rng.rand()  # C rand() compatible
+```
+
+### RNG Consumption Order
+
+1. Weapon refresh available
+2. Perks rebuild available
+3. World step (player updates, projectiles, creatures)
+4. Presentation planning (hit SFX selection, death SFX selection)
+
+<Check>
+  **Stable order** ensures replays produce identical state and command hashes.
+</Check>
+
+## RNG Trace Mode
+
+For debugging divergence:
+
+```bash
+uv run crimson replay verify-checkpoints replay.crd --trace-rng
+```
+
+Outputs per-tick RNG draw counts:
+
+```json
+{
+  "ps_draws_total": 8,
+  "ps_draws_hit_sfx": 3,
+  "ps_draws_death_sfx": 5
+}
+```
+
+## Session Adapters
+
+Mode-specific sessions orchestrate the pipeline:
+
+```python src/crimson/sim/sessions.py
+class SurvivalDeterministicSession:
+    def step_tick(
+        self,
+        dt: float,
+        inputs: list[PlayerInput],
+    ) -> DeterministicStepResult:
+        # Build timing
+        timing = FrameTiming.build(
+            dt=dt,
+            reflex_boost_timer=self.reflex_boost_timer(),
+            time_scale_active=self.time_scale_active(),
+        )
+        
+        # Run deterministic step
+        result = run_deterministic_step(
+            world=self.world,
+            timing=timing,
+            options=self.options,
+            inputs=inputs,
+            fx_queue=self.fx_queue,
+            fx_queue_rotated=self.fx_queue_rotated,
+        )
+        
+        # Update mode-level timers
+        self.elapsed_ms += result.dt_sim * 1000.0
+        
+        # Handle spawning
+        self.spawn_system.update(result.dt_sim)
+        
+        return result
+```
+
+Session types:
+
+- `SurvivalDeterministicSession`
+- `RushDeterministicSession`
+- `QuestDeterministicSession`
+
+## Replay Verification
+
+Headless replay verification uses the same pipeline:
+
+```python src/crimson/sim/driver/replay_runner.py
+def run_replay(replay: Replay) -> ReplayRunResult:
+    """Run replay headlessly and return final stats."""
+    
+    # Build world from replay settings
+    world = WorldState.build(...)
+    session = build_session_for_mode(replay.mode, world)
+    
+    # Step through replay
+    for tick_index, input_frame in enumerate(replay.inputs):
+        result = session.step_tick(
+            dt=FIXED_DT,
+            inputs=input_frame,
+        )
+        
+        # Collect stats
+        stats.update(result)
+    
+    return ReplayRunResult(
+        ticks=tick_index + 1,
+        score=world.state.score,
+        kills=world.state.kill_count,
+        rng_state=world.state.rng.state,
+    )
+```
+
+## Command Hash Verification
+
+Checkpoints store `command_hash` per sampled tick:
+
+```python
+# Checkpoint includes:
+checkpoint = {
+    "tick_index": 1000,
+    "command_hash": "a3f8b2e1...",
+    "state_hash": "9d4c7a3b...",
+    "rng_state": 1234567890,
+}
+```
+
+Verification order:
+
+1. Compare `command_hash` first (fast fail)
+2. Compare `state_hash` if command hash matches
+3. Deep field comparison if state hash mismatches
+
+## Why This Matters
+
+Before this refactor:
+
+- Live gameplay and headless replay duplicated tick logic
+- Different ordering caused divergence
+- Missing presentation planning created RNG drift
+
+After:
+
+- All paths execute the same pipeline
+- Same command stream shape across live/headless/playback
+- Deterministic verification via command/state hashes
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Float32 Parity" icon="calculator" href="/rewrite/parity/float-policy">
+    Learn about float precision
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    Explore replay recording
+  </Card>
+  <Card title="Gameplay System" icon="crosshairs" href="/rewrite/systems/gameplay">
+    Understand gameplay mechanics
+  </Card>
+  <Card title="Perks Architecture" icon="sparkles" href="/rewrite/modules/perks">
+    Dive into perk hooks
+  </Card>
+</CardGroup>

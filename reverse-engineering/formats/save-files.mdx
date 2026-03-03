@@ -1,0 +1,238 @@
+---
+title: Save File Format
+description: Obfuscated save file format (game.cfg) storing quest progress and statistics
+---
+
+Crimsonland stores quest progress and play statistics in `game.cfg` (the "status" file). The format is obfuscated with byte-level transformation and checksummed.
+
+## File Properties
+
+**Path**: `<game_dir>\game.cfg`  
+**Size**: `0x26c` bytes (620 bytes)  
+**Payload**: First `0x268` bytes  
+**Checksum**: Last 4 bytes  
+**Encryption**: Byte-level polynomial obfuscation
+
+## Binary Structure
+
+```c
+typedef struct {
+    u16 quest_unlock_index;         // +0x000
+    u16 quest_unlock_index_full;    // +0x002
+    u32 weapon_usage_counts[53];    // +0x004
+    u32 quest_play_counts[91];      // +0x0d8
+    u32 mode_play_survival;         // +0x244
+    u32 mode_play_rush;             // +0x248
+    u32 mode_play_typo;             // +0x24c
+    u32 mode_play_other;            // +0x250
+    u32 game_sequence_id;           // +0x254
+    u8 reserved[0x10];              // +0x258
+} game_status_t;  // 0x268 bytes
+
+// File layout:
+// [0x000..0x268): Obfuscated payload
+// [0x268..0x26c): Checksum (u32 little-endian)
+```
+
+## Obfuscation Algorithm
+
+Each byte is transformed using a polynomial based on its index:
+
+```python
+def obfuscate_byte(plaintext: int, index: int) -> int:
+    """Obfuscate a single byte."""
+    i8 = (index & 0xff) if index < 128 else (index & 0xff) - 256  # Signed wrap
+    poly = ((i8 * 7 + 0x0f) * i8 + 0x03) * i8
+    return (plaintext + poly + 0x6f) & 0xff
+
+def deobfuscate_byte(ciphertext: int, index: int) -> int:
+    """Deobfuscate a single byte."""
+    i8 = (index & 0xff) if index < 128 else (index & 0xff) - 256
+    poly = ((i8 * 7 + 0x0f) * i8 + 0x03) * i8
+    return (ciphertext - 0x6f - poly) & 0xff
+```
+
+**Full payload**:
+```python
+def deobfuscate_payload(data: bytes) -> bytes:
+    return bytes(deobfuscate_byte(b, i) for i, b in enumerate(data))
+```
+
+## Checksum Algorithm
+
+Checksum is computed over the **decoded** payload:
+
+```python
+def compute_checksum(decoded: bytes) -> int:
+    """Compute 32-bit checksum of decoded payload."""
+    acc = 0
+    u = 0
+    
+    for i, byte in enumerate(decoded):
+        c = byte if byte < 128 else byte - 256  # Signed wrap
+        acc = (acc + 0x0d + ((c * 7 + i) * c + u)) & 0xffffffff
+        u = (u + 0x6f) & 0xffffffff
+    
+    return acc
+```
+
+## Key Fields
+
+### Quest Progress
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x000 | quest_unlock_index | u16 | Max quest unlocked (limited version) |
+| 0x002 | quest_unlock_index_full | u16 | Max quest unlocked (full version) |
+
+**Quest indices**: `major * 10 + minor` (e.g., Quest 3-5 = index 35)
+
+### Weapon Usage
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x004 | weapon_usage_counts | u32[53] | Per-weapon usage counters |
+
+**Note**: Slot 0 is unused. Weapon IDs 1-52 map to slots 1-52. Weapon ID 53 has no slot.
+
+### Quest Play Counts
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x0d8 | quest_play_counts | u32[91] | Per-quest attempt counters |
+
+**Indexing**: `quest_play_counts[major * 10 + minor]`
+
+### Mode Play Counts
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x244 | mode_play_survival | u32 | Survival mode starts |
+| 0x248 | mode_play_rush | u32 | Rush mode starts |
+| 0x24c | mode_play_typo | u32 | Typ-o-Shooter starts |
+| 0x250 | mode_play_other | u32 | Other mode starts |
+
+### Global Counters
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x254 | game_sequence_id | u32 | Incremented on each save |
+
+## Python Decoder
+
+```python
+import struct
+from pathlib import Path
+
+class GameStatus:
+    def __init__(self, file_data: bytes):
+        if len(file_data) != 0x26c:
+            raise ValueError(f"Invalid save size: {len(file_data)}")
+        
+        # Split payload and checksum
+        obfuscated = file_data[:0x268]
+        stored_checksum = struct.unpack("<I", file_data[0x268:0x26c])[0]
+        
+        # Deobfuscate
+        self.decoded = deobfuscate_payload(obfuscated)
+        
+        # Validate checksum
+        calculated = compute_checksum(self.decoded)
+        if calculated != stored_checksum:
+            raise ValueError(f"Checksum mismatch: {calculated:08x} != {stored_checksum:08x}")
+    
+    def get_u16(self, offset: int) -> int:
+        return struct.unpack_from("<H", self.decoded, offset)[0]
+    
+    def get_u32(self, offset: int) -> int:
+        return struct.unpack_from("<I", self.decoded, offset)[0]
+    
+    @property
+    def quest_unlock_full(self) -> int:
+        return self.get_u16(0x002)
+    
+    def get_weapon_usage(self, weapon_id: int) -> int:
+        """Get usage count for weapon ID (1-52)."""
+        if not (1 <= weapon_id <= 52):
+            raise ValueError(f"Invalid weapon ID: {weapon_id}")
+        return self.get_u32(0x004 + weapon_id * 4)
+    
+    def get_quest_plays(self, major: int, minor: int) -> int:
+        """Get play count for quest major-minor."""
+        index = major * 10 + minor
+        if not (0 <= index < 91):
+            raise ValueError(f"Invalid quest index: {major}-{minor}")
+        return self.get_u32(0x0d8 + index * 4)
+    
+    @property
+    def survival_plays(self) -> int:
+        return self.get_u32(0x244)
+
+# Usage:
+save = GameStatus(Path("game.cfg").read_bytes())
+print(f"Quests unlocked: {save.quest_unlock_full}")
+print(f"Pistol usage: {save.get_weapon_usage(1)}")
+print(f"Quest 3-5 plays: {save.get_quest_plays(3, 5)}")
+print(f"Survival plays: {save.survival_plays}")
+```
+
+## CLI Tool
+
+The rewrite includes a save editor:
+
+```bash
+# View save file
+uv run scripts/save_status.py info game.cfg
+
+# Unlock all quests
+uv run scripts/save_status.py set game.cfg --set quest_unlock_index_full=90
+
+# Set weapon usage
+uv run scripts/save_status.py set game.cfg --set weapon_usage.1=100
+
+# Set quest play count
+uv run scripts/save_status.py set game.cfg --set quest_play.35=50
+```
+
+**Automatic checksum**: The tool recalculates the checksum after edits.
+
+## Example Save File
+
+Hex dump of `game.cfg`:
+
+```
+Offset  Hex                                           Note
+------  -----------------------------------------    -----
+0x000   6f d0 9a 05 ...                              Obfuscated payload
+0x268   4a 3c 8f 12                                  Checksum (u32)
+```
+
+After deobfuscation:
+
+```
+Offset  Hex                                           ASCII
+------  -----------------------------------------    -----
+0x000   1e 00 1e 00                                  ..  (quest_unlock=30)
+0x004   00 00 00 00 0c 00 00 00 ...                  ... (weapon usage)
+0x0d8   02 00 00 00 01 00 00 00 ...                  ... (quest plays)
+0x244   0f 00 00 00                                  ... (survival_plays=15)
+```
+
+## Security Notes
+
+<Warning>
+  The obfuscation is **not encryption** - it's trivially reversible. Don't rely on it for security.
+</Warning>
+
+**Purpose**: Prevent casual hex editing, not determined tampering.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Config Files" href="/reverse-engineering/formats/config-files">
+    Game configuration format (crimson.cfg)
+  </Card>
+  <Card title="Quest System" href="/mechanics/quests">
+    Quest progression and unlocks
+  </Card>
+</CardGroup>

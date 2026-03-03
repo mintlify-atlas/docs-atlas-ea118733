@@ -1,0 +1,398 @@
+---
+title: replay benchmark
+description: Benchmark replay simulation and rendering performance
+---
+
+Measure replay throughput (ticks per second) with optional profiling and render telemetry.
+
+## Usage
+
+```bash
+crimson replay benchmark <replay_file> [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="replay_file" type="Path" required>
+  Replay file path (`.crd`).
+  
+  If a filename is provided without path, also searches `base-dir/replays/`
+</ParamField>
+
+## Options
+
+<ParamField path="--runs" type="int">
+  Number of measured benchmark runs.
+  
+  Default:
+  - headless: 5
+  - render: 1
+  
+  Must be ≥ 1.
+</ParamField>
+
+<ParamField path="--warmup-runs" type="int">
+  Warmup runs before measured timing.
+  
+  Default:
+  - headless: 1
+  - render: 0
+  
+  Must be ≥ 0.
+</ParamField>
+
+<ParamField path="--mode" type="headless|render" default="headless">
+  Benchmark mode:
+  - `headless` — Simulation only (no rendering)
+  - `render` — Full rendering pipeline
+</ParamField>
+
+<ParamField path="--rtx" type="flag">
+  Enable non-canonical RTX render mode.
+  
+  Render mode only.
+</ParamField>
+
+<ParamField path="--max-ticks" type="int">
+  Stop after N ticks.
+  
+  Default: Full replay
+</ParamField>
+
+<ParamField path="--trace-rng" type="flag">
+  Enable replay RNG trace mode during simulation.
+</ParamField>
+
+<ParamField path="--profile" type="flag">
+  Run one cProfile pass and include hotspot summary.
+</ParamField>
+
+<ParamField path="--profile-sort" type="cumtime|tottime" default="cumtime">
+  Hotspot sort key:
+  - `cumtime` — Cumulative time (includes subcalls)
+  - `tottime` — Total time (function only)
+</ParamField>
+
+<ParamField path="--top" type="int" default="20">
+  Maximum hotspot rows to include.
+  
+  Must be ≥ 1.
+</ParamField>
+
+<ParamField path="--profile-out" type="Path">
+  Optional cProfile .pstats output path.
+  
+  Used only with `--profile`.
+</ParamField>
+
+<ParamField path="--render-telemetry" type="flag">
+  Collect per-tick render telemetry.
+  
+  Render mode only. Records frame timing, draw calls, pass breakdown.
+</ParamField>
+
+<ParamField path="--render-telemetry-out" type="Path">
+  Optional output path for full render telemetry JSON.
+  
+  Render mode only.
+</ParamField>
+
+<ParamField path="--render-charts-out-dir" type="Path">
+  Optional output directory for render telemetry SVG charts.
+  
+  Render mode only. Requires `altair` package.
+</ParamField>
+
+<ParamField path="--format" type="human|json" default="human">
+  Output format:
+  - `human` — Human-readable text
+  - `json` — Machine-readable JSON
+</ParamField>
+
+<ParamField path="--json-out" type="Path">
+  Optional JSON output path for benchmark payload.
+</ParamField>
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files.
+  
+  Default: Per-user OS data directory
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+## Output Format
+
+### Human Format (default)
+
+```bash
+crimson replay benchmark run.crd
+```
+
+Output:
+```
+ok: mode=headless runs=5 warmup_runs=1 ticks=36000 wall_ms_p50=1842.345 tps_p50=19542.18 realtime_x_p50=325.70
+wall_ms min=1821.234 p50=1842.345 mean=1848.123 p95=1876.543 max=1891.234 stdev=24.567
+throughput_tps min=19012.34 p50=19542.18 mean=19478.92 p95=19876.54 max=19998.21 stdev=321.45 | realtime_x min=316.87 p50=325.70 mean=324.65 p95=331.28 max=333.30 stdev=5.36
+```
+
+### JSON Format
+
+```bash
+crimson replay benchmark run.crd --format json > bench.json
+```
+
+See schema in `_ReplayBenchmarkPayload` (source:cli/replay.py:389).
+
+## Metrics
+
+<ParamField path="wall_ms" type="float">
+  Wall-clock milliseconds per run.
+</ParamField>
+
+<ParamField path="ticks_per_second" type="float">
+  Simulation throughput (ticks/sec).
+  
+  Higher = better performance.
+  
+  Target: ~60 tps = 1x realtime
+</ParamField>
+
+<ParamField path="realtime_x" type="float">
+  Realtime multiplier.
+  
+  - `1.0x` = realtime
+  - `10.0x` = 10x faster than realtime
+  - `0.5x` = 2x slower than realtime
+</ParamField>
+
+All metrics include: `min`, `p50`, `mean`, `p95`, `max`, `stdev`.
+
+## Examples
+
+### Basic Headless Benchmark
+
+```bash
+crimson replay benchmark run.crd
+# 5 runs + 1 warmup
+```
+
+### Single Run
+
+```bash
+crimson replay benchmark run.crd --runs 1 --warmup-runs 0
+```
+
+### Render Mode Benchmark
+
+```bash
+crimson replay benchmark run.crd --mode render
+# 1 run + 0 warmup (slower)
+```
+
+### With Profiling
+
+```bash
+crimson replay benchmark run.crd --profile --profile-out profile.pstats
+```
+
+Output includes hotspot table:
+```
+profile: sort=cumtime source=cProfile top=20
+hotspots:
+  01 cum=1.234567s tot=0.123456s calls=36000/36000 src/crimson/sim/tick.py:45::update_tick
+  02 cum=0.987654s tot=0.456789s calls=72000/72000 src/crimson/entities/creature.py:123::update
+  ...
+```
+
+### Render Telemetry
+
+```bash
+crimson replay benchmark run.crd \
+  --mode render \
+  --render-telemetry \
+  --render-telemetry-out telemetry.json \
+  --render-charts-out-dir charts/
+```
+
+Generates:
+- `telemetry.json` — Per-frame timing data
+- `charts/frame_timing.svg` — Frame timing chart
+- `charts/draw_calls.svg` — Draw call chart
+- `charts/pass_timing_stacked.svg` — Render pass breakdown
+- `charts/report.md` — Summary report
+
+### JSON Output
+
+```bash
+crimson replay benchmark run.crd --format json --json-out result.json
+```
+
+### Short Replay Segment
+
+```bash
+crimson replay benchmark run.crd --max-ticks 6000
+# Benchmark first 100 seconds only
+```
+
+## Profiling
+
+With `--profile`, runs one extra profiled pass using Python's `cProfile`:
+
+```bash
+crimson replay benchmark run.crd --profile --top 10
+```
+
+Output shows top hotspots:
+```
+hotspots:
+  01 cum=1.23s tot=0.12s calls=36000/36000 sim/tick.py:45::update_tick
+  02 cum=0.98s tot=0.45s calls=72000/72000 entities/creature.py:123::update
+  03 cum=0.76s tot=0.23s calls=36000/36000 weapons/handler.py:67::fire
+  ...
+```
+
+Export full pstats:
+
+```bash
+crimson replay benchmark run.crd --profile --profile-out bench.pstats
+
+# Analyze with pstats
+python -m pstats bench.pstats
+```
+
+## Render Telemetry
+
+With `--render-telemetry`, collects per-frame metrics:
+
+<ParamField path="frame_ms" type="float">
+  Total frame time (update + draw).
+</ParamField>
+
+<ParamField path="update_ms" type="float">
+  Simulation update time.
+</ParamField>
+
+<ParamField path="draw_ms" type="float">
+  Rendering time.
+</ParamField>
+
+<ParamField path="draw_calls_total" type="int">
+  Total draw calls per frame.
+</ParamField>
+
+<ParamField path="draw_calls_by_api" type="dict">
+  Draw calls grouped by raylib API.
+</ParamField>
+
+<ParamField path="draw_calls_by_pass" type="dict">
+  Draw calls grouped by render pass.
+</ParamField>
+
+<ParamField path="pass_ms" type="dict">
+  Time spent in each render pass.
+</ParamField>
+
+### Charts
+
+With `--render-charts-out-dir`, generates SVG visualizations:
+
+```bash
+crimson replay benchmark run.crd \
+  --mode render \
+  --render-telemetry \
+  --render-charts-out-dir ./charts
+```
+
+Outputs:
+- `frame_timing.svg` — Frame time over ticks
+- `draw_calls.svg` — Draw call count over ticks
+- `pass_timing_stacked.svg` — Stacked pass timing
+- `report.md` — Markdown summary
+
+## Performance Tips
+
+### Headless vs Render
+
+Headless is 10-20x faster:
+
+```bash
+# Fast: 20000 tps
+crimson replay benchmark run.crd --mode headless
+
+# Slow: 60-120 tps (limited by vsync)
+crimson replay benchmark run.crd --mode render
+```
+
+### Reducing Variance
+
+For stable benchmarks:
+
+1. Close background apps
+2. Use `--runs 10` for better statistics
+3. Use `--warmup-runs 2` to warm caches
+4. Run on AC power (laptops)
+
+### Short Replays
+
+For quick iteration:
+
+```bash
+crimson replay benchmark run.crd --max-ticks 3600  # 1 minute
+```
+
+## Use Cases
+
+### Regression Testing
+
+Detect performance regressions:
+
+```bash
+# Baseline
+crimson replay benchmark test.crd --format json > baseline.json
+
+# After changes
+crimson replay benchmark test.crd --format json > current.json
+
+# Compare
+python scripts/compare_benchmarks.py baseline.json current.json
+```
+
+### Profiling Bottlenecks
+
+```bash
+crimson replay benchmark slow.crd --profile --top 30
+```
+
+### Render Optimization
+
+```bash
+crimson replay benchmark complex.crd \
+  --mode render \
+  --render-telemetry \
+  --render-charts-out-dir optimization/
+```
+
+Analyze charts to identify:
+- Frame spikes
+- Draw call bottlenecks
+- Expensive render passes
+
+### CI Performance Tracking
+
+```yaml
+# .github/workflows/benchmark.yml
+- name: Benchmark replays
+  run: |
+    crimson replay benchmark tests/bench.crd \
+      --format json \
+      --json-out bench-${{ github.sha }}.json
+```
+
+## See Also
+
+- [replay verify](/cli/replay/verify) — Headless verification
+- [replay render](/cli/replay/render) — Video rendering
+- [Replay System](/cli/replay/overview) — Overview

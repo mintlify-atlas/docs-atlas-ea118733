@@ -1,0 +1,457 @@
+---
+title: Decompilation Process
+description: Understanding Ghidra decompiler output and C pseudocode patterns
+---
+
+This page explains how to read and interpret Ghidra's decompiled C output, with examples from the Crimsonland reverse engineering effort.
+
+## Decompiler Overview
+
+Ghidra's decompiler converts x86 assembly to C pseudocode by:
+
+1. **Lifting** machine code to P-CODE intermediate representation
+2. **Analysis** to recover control flow (loops, branches, switches)
+3. **Type inference** from usage patterns and API signatures
+4. **Simplification** to collapse redundant operations
+
+**Result**: Readable C-like code that preserves program logic but may use odd variable names and casts.
+
+## Reading Decompiled Code
+
+### Function Signature
+
+```c
+/* projectile_update @ 00420b90 */
+void projectile_update(void)
+```
+
+- **Address comment** tracks original location
+- **Return type** inferred from assembly (`void` if no `eax` usage)
+- **Parameters** reconstructed from stack/register access
+
+### Local Variables
+
+Ghidra generates names like `local_XX` based on stack offset:
+
+```c
+int local_e8;
+float local_c0;
+float local_bc;
+```
+
+**Before renaming**:
+```c
+local_e8 = 0;
+while (local_e8 < 0x60) {
+    if (*(char*)(0x004926b8 + local_e8 * 0x40) != 0) {
+        // ...
+    }
+    local_e8++;
+}
+```
+
+**After renaming** (manual annotation):
+```c
+int proj_idx = 0;
+while (proj_idx < 0x60) {
+    if (projectile_pool[proj_idx].active) {
+        // ...
+    }
+    proj_idx++;
+}
+```
+
+### Global Access
+
+Ghidra represents globals as `DAT_` addresses:
+
+```c
+float health = *(float*)(&DAT_004908d4 + player_idx * 0x360);
+```
+
+**Interpretation**:
+- Base address: `0x004908d4`
+- Stride: `0x360` bytes per entry
+- Type: `float` at offset `0x00`
+
+**After symbol recovery**:
+```c
+float health = player_health[player_idx];
+```
+
+### Pointer Arithmetic
+
+Decompiler shows raw pointer math:
+
+```c
+pfVar1 = (float*)(&DAT_004926b8 + local_e8 * 0x40 + 0x08);
+*pfVar1 = *pfVar1 + vel_x * delta_time;
+```
+
+**Meaning**: Access `projectile_pool[local_e8].pos_x` (offset `0x08`) and add `vel_x * delta_time`.
+
+## Common Patterns
+
+### Pool Iteration
+
+```c
+// Pattern: Loop over fixed-size pool
+for (int i = 0; i < POOL_SIZE; i++) {
+    if (pool[i].active) {
+        update_entry(&pool[i]);
+    }
+}
+```
+
+**Example** (projectile update):
+```c
+local_e8 = 0;
+do {
+    if (projectile_pool[local_e8].active != '\0') {
+        // Update logic here
+    }
+    local_e8 = local_e8 + 1;
+} while (local_e8 < 0x60);
+```
+
+### Switch Statement
+
+```c
+switch (projectile_type) {
+    case 0x01:  // Pistol bullet
+        damage = 10.0;
+        break;
+    case 0x06:  // Gauss beam
+        damage = 50.0;
+        hit_radius = 3.0;
+        break;
+    default:
+        damage = 1.0;
+}
+```
+
+Ghidra may show jump tables or cascading `if` statements depending on compiler optimization.
+
+### Function Calls
+
+```c
+iVar7 = perk_count_get(perk_id_ion_gun_master);
+if (iVar7 != 0) {
+    local_c0 = 1.2;  // 20% damage boost
+}
+```
+
+**Convention**: 
+- Parameters passed via stack or registers (`cdecl`, `fastcall`, `thiscall`)
+- Return value in `eax` (integers) or `st(0)` (floats)
+
+### Float Casts
+
+Floating-point math may show explicit casts:
+
+```c
+float result = (float)((double)a * (double)b + (double)c);
+```
+
+**Why**: x87 FPU uses 80-bit extended precision internally; decompiler shows intermediate conversions.
+
+**Parity note**: Python rewrite must use `float32` explicitly to match original precision.
+
+## Identifying Data Structures
+
+### Struct Access
+
+Repeated offsets reveal struct layout:
+
+```c
+// Read multiple fields from same base + index
+active = *(char*)(base + idx * 0x40 + 0x00);
+angle = *(float*)(base + idx * 0x40 + 0x04);
+pos_x = *(float*)(base + idx * 0x40 + 0x08);
+pos_y = *(float*)(base + idx * 0x40 + 0x0c);
+```
+
+**Inferred struct**:
+```c
+typedef struct {
+    u8 active;      // +0x00
+    u8 _pad[3];
+    float angle;    // +0x04
+    float pos_x;    // +0x08
+    float pos_y;    // +0x0c
+    // ...
+} projectile_t;  // 0x40 bytes
+```
+
+### Array-of-Structs
+
+```c
+projectile_t projectile_pool[0x60];
+
+// Access: projectile_pool[i].field
+for (int i = 0; i < 0x60; i++) {
+    if (projectile_pool[i].active) {
+        projectile_pool[i].pos_x += velocity * dt;
+    }
+}
+```
+
+### Structure-of-Arrays
+
+```c
+float fx_pos_x[0x80];
+float fx_pos_y[0x80];
+float fx_color_r[0x80];
+
+// Access: array[i]
+for (int i = 0; i < fx_queue_count; i++) {
+    draw_sprite(fx_pos_x[i], fx_pos_y[i], fx_color_r[i]);
+}
+```
+
+**Identifying**: Multiple parallel arrays with same stride, indexed together.
+
+## Control Flow
+
+### Loops
+
+**While loop**:
+```c
+while (condition) {
+    // body
+}
+```
+
+**Do-while**:
+```c
+do {
+    // body
+} while (condition);
+```
+
+**For loop** (decompiler often shows as while):
+```c
+int i = 0;
+while (i < count) {
+    // body
+    i++;
+}
+```
+
+### Branches
+
+```c
+if (player_health <= 0.0) {
+    player_death_timer = 5.0;
+    sfx_play(SOUND_DEATH);
+}
+```
+
+Ghidra preserves branch structure from assembly (`je`, `jne`, `jg`).
+
+### Nested Conditions
+
+Deeply nested `if` statements may indicate state machines or complex branching logic:
+
+```c
+if (game_state == STATE_PLAYING) {
+    if (player_alive) {
+        if (input_fire_pressed) {
+            weapon_fire();
+        }
+    } else {
+        if (death_timer <= 0) {
+            transition_to_game_over();
+        }
+    }
+}
+```
+
+## Type Inference Challenges
+
+### Ambiguous Types
+
+Without debug symbols, Ghidra guesses types from context:
+
+```c
+int iVar7 = some_function();  // Could be bool, enum, or int
+```
+
+**Solution**: Cross-reference with runtime captures to confirm actual values.
+
+### Pointer Confusion
+
+```c
+void* pvVar3 = (void*)0x00480348;
+int value = *(int*)((int)pvVar3 + 0x1c8);
+```
+
+**Better interpretation** (after struct definition):
+```c
+crimson_cfg_t* config = (crimson_cfg_t*)0x00480348;
+int keybind = config->keybinds_p1[0];
+```
+
+### Float vs Int
+
+Memory operations may show wrong type:
+
+```c
+int iVar7 = *(int*)(player_base + 0x2a8);  // Actually a float!
+```
+
+**Detection**: Usage in FPU instructions (`fadd`, `fmul`) indicates float.
+
+## Working with Decompiled Output
+
+### Keep Original Addresses
+
+Preserve address comments for cross-referencing:
+
+```c
+/* projectile_update @ 00420b90 */
+void projectile_update(void)
+{
+    /* LAB_00420c45: */
+    if (projectile_type == 0x15) {
+        // ...
+    }
+}
+```
+
+Labels like `LAB_00420c45` map to assembly locations.
+
+### Annotate with Evidence
+
+Add comments linking to runtime captures:
+
+```c
+// Confirmed via Frida: Fire Bullets bonus forces type 0x2d
+if (owner_id <= -100 && player_fire_bullets_timer[owner_id] > 0.0) {
+    type_id = 0x2d;
+}
+```
+
+### Split Complex Functions
+
+Large functions (1000+ lines) benefit from extraction:
+
+```bash
+uv run scripts/ghidra_hotspot_extract.py \
+  --function projectile_update \
+  --depth 1
+```
+
+Focus on subsections in `work/` directory for detailed annotation.
+
+## Example: Projectile Update
+
+Let's walk through a real decompiled function:
+
+### Raw Decompile
+
+```c
+void FUN_00420b90(void)
+{
+  int iVar1;
+  float fVar2;
+  int local_e8;
+  float local_c0;
+  
+  local_c0 = 1.0;
+  iVar1 = FUN_0042fcf0(0x3a);
+  if (iVar1 != 0) {
+    local_c0 = 1.2;
+  }
+  
+  local_e8 = 0;
+  do {
+    if (*(char*)(0x004926b8 + local_e8 * 0x40) != '\0') {
+      fVar2 = *(float*)(0x004926b8 + local_e8 * 0x40 + 0x24);
+      if (fVar2 <= 0.0) {
+        *(undefined*)(0x004926b8 + local_e8 * 0x40) = 0;
+      } else {
+        *(float*)(0x004926b8 + local_e8 * 0x40 + 0x24) = fVar2 - *(float*)0x00480840;
+        // ... movement and collision logic
+      }
+    }
+    local_e8 = local_e8 + 1;
+  } while (local_e8 < 0x60);
+}
+```
+
+### After Symbol Recovery
+
+```c
+void projectile_update(void)
+{
+  int has_ion_perk;
+  float damage_multiplier;
+  int proj_idx;
+  float life_timer;
+  
+  damage_multiplier = 1.0;
+  has_ion_perk = perk_count_get(PERK_ION_GUN_MASTER);
+  if (has_ion_perk != 0) {
+    damage_multiplier = 1.2;  // +20% damage
+  }
+  
+  proj_idx = 0;
+  do {
+    if (projectile_pool[proj_idx].active) {
+      life_timer = projectile_pool[proj_idx].life_timer;
+      if (life_timer <= 0.0) {
+        projectile_pool[proj_idx].active = 0;  // Despawn
+      } else {
+        projectile_pool[proj_idx].life_timer = life_timer - delta_time;
+        // ... movement and collision logic
+      }
+    }
+    proj_idx++;
+  } while (proj_idx < PROJECTILE_POOL_SIZE);
+}
+```
+
+### With Type Definitions
+
+```c
+void projectile_update(void)
+{
+  float damage_multiplier = 1.0;
+  
+  if (perk_count_get(PERK_ION_GUN_MASTER)) {
+    damage_multiplier = 1.2;
+  }
+  
+  for (int i = 0; i < PROJECTILE_POOL_SIZE; i++) {
+    projectile_t* proj = &projectile_pool[i];
+    if (!proj->active) continue;
+    
+    proj->life_timer -= delta_time;
+    if (proj->life_timer <= 0.0) {
+      proj->active = false;
+      continue;
+    }
+    
+    // Update position
+    proj->pos_x += proj->vel_x * proj->speed_scale * delta_time;
+    proj->pos_y += proj->vel_y * proj->speed_scale * delta_time;
+    
+    // Collision detection...
+  }
+}
+```
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Ghidra Workflow" href="/reverse-engineering/static/ghidra-workflow">
+    Complete static analysis process
+  </Card>
+  <Card title="Struct Recovery" href="/reverse-engineering/static/struct-recovery">
+    Reconstructing data structures
+  </Card>
+  <Card title="Frida Capture" href="/reverse-engineering/runtime/frida-capture">
+    Validating decompiled logic with runtime data
+  </Card>
+</CardGroup>

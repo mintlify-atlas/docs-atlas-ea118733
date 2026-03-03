@@ -1,0 +1,394 @@
+---
+title: Development Tooling
+description: Analysis tools and utility scripts for reverse engineering and development
+---
+
+The Crimsonland project includes 40+ analysis and utility scripts to support reverse engineering, parity verification, and development workflows.
+
+## Build Automation (Just)
+
+The project uses [just](https://github.com/casey/just) as a command runner. All common tasks are defined in `justfile`.
+
+### Common Commands
+
+```bash
+just --list              # Show all available commands
+just check               # Run full verification suite
+just test                # Run pytest
+just test-cov            # Run pytest with coverage reports
+just extract             # Extract PAQ archives to filesystem
+just docs-build          # Build documentation site
+```
+
+See `justfile` for 50+ available commands.
+
+## Testing Tools
+
+### pytest
+
+Primary test runner:
+
+```bash
+uv run pytest                    # Run all tests
+uv run pytest tests/test_*.py    # Run specific test file
+uv run pytest -k "pattern"       # Run tests matching pattern
+uv run pytest --cov-report=html  # Generate HTML coverage report
+```
+
+See [Testing Guide](/contributing/dev/testing) for detailed usage.
+
+### Syrupy (Snapshot Testing)
+
+Captures and verifies complex data structures:
+
+```bash
+uv run pytest --snapshot-update  # Update snapshots after intentional changes
+```
+
+## Code Quality Tools
+
+### Ruff (Linter)
+
+Fast Python linter:
+
+```bash
+uv run ruff check .              # Check all files
+uv run ruff check --fix .        # Auto-fix safe issues
+uv run ruff check --fix --show-fixes .  # Show what was fixed
+```
+
+Configuration in `pyproject.toml`:
+- Line length: 120
+- Enabled rules: B007, B017, B023, B904, COM812, I001, PGH003, PT017, RUF012, RUF100, S113, S607, TRY004, UP035
+
+### ty (Type Checker)
+
+Fast Python type checker:
+
+```bash
+uv run ty check src tests        # Check source and tests
+just ty                          # Shorthand for above
+just ty-tests                    # Check tests only
+```
+
+### import-linter
+
+Enforces architectural boundaries:
+
+```bash
+uv run lint-imports              # Validate import contracts
+```
+
+Contracts defined in `pyproject.toml`:
+- `grim` must not import `crimson`
+- Perk implementations isolated from selection logic
+
+### ast-grep (Structural Search)
+
+Structural code search and transformation:
+
+```bash
+sg scan                          # Run configured rules
+sg test                          # Test ast-grep rules
+sg run -p 'pattern' -r 'fix' src  # Apply transformation
+```
+
+For Zig code:
+
+```bash
+sg run -c sgconfig.local.yml -l zig -p '_PATTERN' -r '$FIX' crimson-zig/src
+```
+
+### prek (Pre-commit Hooks)
+
+Manages git hooks:
+
+```bash
+prek install -c prek.toml -t pre-commit -t pre-push  # Install hooks
+prek run --stage pre-commit      # Run pre-commit checks manually
+prek run --stage pre-push        # Run pre-push checks manually
+```
+
+## Asset Tools
+
+### PAQ Archive Extraction
+
+Extract original game archives:
+
+```bash
+just extract                     # Extract to artifacts/assets/
+uv run crimson extract <src> <dst>  # Custom paths
+```
+
+JAZ textures are automatically converted to PNG with alpha.
+
+### Atlas Tools
+
+Sprite atlas analysis:
+
+```bash
+just atlas-scan                  # Scan and generate usage map
+just atlas-export-all            # Export all frames
+just atlas-export <image> <grid> # Export specific atlas
+```
+
+### Font Samples
+
+Generate font rendering samples:
+
+```bash
+just font-sample                 # View font samples
+uv run crimson view fonts        # Same as above
+```
+
+## Analysis Scripts (40+)
+
+Located in `scripts/`, these tools support reverse engineering and analysis.
+
+### Ghidra Tools
+
+<Tabs>
+  <Tab title="Ghidra Analysis">
+    ```bash
+    # Unix only
+    just ghidra-exe                # Analyze crimsonland.exe
+    just ghidra-grim               # Analyze grim.dll
+    just ghidra-sync               # Sync name/type maps
+    ```
+    
+    Scripts in `analysis/ghidra/scripts/`:
+    - `ApplyNameMap.java` - Apply name mappings
+    - `ApplyDataMap.java` - Apply data structure layouts
+    - `ExportAll.java` - Export decompiles
+  </Tab>
+  
+  <Tab title="IDA Pro (Windows)">
+    ```powershell
+    just ida-export-exe            # Export crimsonland.exe metadata
+    just ida-export-grim           # Export grim.dll metadata
+    just ida-decompile-exe         # Decompile crimsonland.exe
+    just ida-decompile-grim        # Decompile grim.dll
+    ```
+  </Tab>
+</Tabs>
+
+### Frida Tools (Windows)
+
+Runtime instrumentation for capturing native behavior:
+
+<Tabs>
+  <Tab title="Gameplay Captures">
+    ```powershell
+    just frida-gameplay-state-capture    # Capture state snapshots
+    just frida-gameplay-diff-capture     # Differential capture
+    ```
+    
+    Captures go to `$CRIMSON_FRIDA_DIR` (default: `C:\share\frida`).
+  </Tab>
+  
+  <Tab title="Quest Analysis">
+    ```powershell
+    just frida-quest-build-dump          # Dump quest build data
+    just frida-quest-spanking-count      # Track spanking events
+    ```
+  </Tab>
+  
+  <Tab title="UI Tracing">
+    ```powershell
+    just frida-game-over-panel-trace     # Trace game over panel state
+    just frida-panel-state-resolution-sweep  # Resolution sweep
+    ```
+  </Tab>
+  
+  <Tab title="Demo/Trial Analysis">
+    ```powershell
+    just frida-demo-trial-overlay        # Trace trial overlay
+    just frida-demo-idle-threshold       # Trace idle threshold
+    ```
+  </Tab>
+</Tabs>
+
+### Frida Import/Reduce (Unix)
+
+Import Windows captures to Unix for analysis:
+
+```bash
+just frida-copy-share            # Copy from /mnt/c/share/frida
+just frida-import-raw            # Import to analysis/frida/raw/
+just frida-reduce                # Generate summaries
+just game-over-panel-reduce      # Reduce panel trace
+just panel-state-resolution-reduce  # Reduce resolution sweep
+just demo-trial-validate         # Validate trial overlay
+just demo-idle-summarize         # Summarize idle threshold
+```
+
+### Code Analysis Scripts
+
+```bash
+just entrypoint-trace            # Trace call graph from entrypoint
+just function-hotspots           # Identify frequently called functions
+just dat-hotspots                # Analyze data access patterns
+just schema-inventory            # Inventory data schemas
+just save-status                 # Analyze save file structure
+just weapon-table                # Extract weapon table
+just spawn-templates             # Generate spawn templates
+```
+
+### Duplication Detection
+
+```bash
+just dup-report                  # Generate code duplication report
+just dup-report out=<file> min=<lines>  # Custom output and threshold
+```
+
+Uses `pylint` with R0801 rule (duplicate-code).
+
+## Documentation Tools
+
+### Zensical (Docs Site Generator)
+
+```bash
+uv tool install zensical         # Install globally
+zensical serve                   # Serve docs locally
+just docs-build                  # Build static site
+just docs-check                  # Validate docs structure
+just docs-zensical-fix           # Auto-fix formatting issues
+```
+
+### Documentation Validation
+
+```bash
+uv run scripts/check_docs.py     # Validate docs structure and links
+```
+
+## Replay Tools
+
+Replay analysis and verification:
+
+```bash
+uv run crimson replay list                   # List replay files
+uv run crimson replay play <file>            # Play back replay
+uv run crimson replay verify <file>          # Verify determinism
+uv run crimson replay verify-checkpoints <file>  # Compare to sidecar
+uv run crimson replay benchmark <file>       # Benchmark throughput
+uv run crimson replay render <file>          # Render to video
+```
+
+## Debugging Tools
+
+### WinDbg (Windows)
+
+Debugger for native binary:
+
+```powershell
+just windbg-server               # Start WinDbg server
+just windbg-client               # Connect WinDbg client
+just windbg-tail                 # Tail WinDbg log (Unix)
+```
+
+Logs saved to game directory for offline analysis.
+
+### PE Analysis (Unix)
+
+Portable Executable metadata:
+
+```bash
+just pe-info                     # Show PE metadata
+just pe-info target=grim.dll     # Analyze DLL
+just pe-imports                  # Show import table
+```
+
+Uses `rabin2` from [radare2](https://github.com/radareorg/radare2).
+
+## Zig Tools
+
+For Zig runtime development:
+
+```bash
+just zig-build                   # Build Zig project
+just zig-run                     # Run Zig binary
+just zig-test                    # Run Zig tests
+just zig-wasm                    # Build WebAssembly
+just check-zig                   # Full Zig verification
+```
+
+## Utility Scripts
+
+Select utility scripts in `scripts/`:
+
+| Script | Purpose |
+|--------|--------|
+| `atlas_scan.py` | Scan sprite atlases for usage |
+| `atlas_export.py` | Export atlas frames to PNG |
+| `check_docs.py` | Validate documentation structure |
+| `extract_weapon_table.py` | Extract weapon stats to table |
+| `gen_spawn_templates.py` | Generate creature spawn templates |
+| `entrypoint_trace.py` | Trace call graph from entrypoints |
+| `function_hotspots.py` | Identify hot functions |
+| `dat_hotspots.py` | Analyze data access patterns |
+| `schema_inventory.py` | Inventory data structures |
+| `save_status.py` | Analyze save file structure |
+| `zensical_fix_md.py` | Auto-fix Markdown formatting |
+
+## Tool Installation Summary
+
+<Tabs>
+  <Tab title="Python (uv)">
+    All Python tools are installed via `uv sync`:
+    
+    ```bash
+    uv sync                      # Install everything
+    ```
+    
+    Includes:
+    - pytest, ruff, ty, import-linter
+    - syrupy, pytest-mock, pytest-cov
+    - Frida analysis scripts (Unix)
+  </Tab>
+  
+  <Tab title="Rust (cargo)">
+    ```bash
+    cargo install ast-grep       # Structural search
+    cargo install prek           # Pre-commit hooks
+    cargo install just           # Command runner
+    ```
+  </Tab>
+  
+  <Tab title="System (apt/brew)">
+    ```bash
+    # Linux
+    sudo apt install radare2     # PE analysis tools
+    
+    # macOS
+    brew install radare2
+    brew install just            # Alternative to cargo
+    brew install ast-grep        # Alternative to cargo
+    ```
+  </Tab>
+  
+  <Tab title="Tools (uv tool)">
+    ```bash
+    uv tool install zensical     # Documentation site generator
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Learn how to run and write tests
+  </Card>
+  
+  <Card title="Verification Process" icon="check-double" href="/contributing/dev/verification">
+    Complete verification workflow
+  </Card>
+  
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Understand parity-first development
+  </Card>
+  
+  <Card title="Code Style" icon="paintbrush" href="/contributing/guidelines/code-style">
+    Follow project coding standards
+  </Card>
+</CardGroup>

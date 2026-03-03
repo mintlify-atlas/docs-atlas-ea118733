@@ -1,0 +1,171 @@
+---
+title: CLI Overview
+description: Command-line interface for Crimsonland reimplementation
+---
+
+The Crimsonland reimplementation exposes all functionality through a comprehensive command-line interface built with [Typer](https://typer.tiangolo.com/).
+
+## Installation
+
+```bash
+# Install latest from PyPI
+uvx crimsonland@latest
+
+# Run from source
+gh repo clone banteg/crimson && cd crimson
+uv run crimson
+```
+
+## Entry Points
+
+The package provides two equivalent entry points:
+
+- `crimson` — primary CLI entry point
+- `crimsonland` — alias for compatibility
+
+Both commands provide identical functionality.
+
+## Command Structure
+
+The CLI is organized into logical command groups:
+
+```bash
+crimson                    # Run game (default command)
+crimson extract            # Extract PAQ archives
+crimson config             # Inspect crimson.cfg
+crimson view               # Debug views
+crimson quests             # Quest spawn scripts
+crimson spawn-plan         # Spawn plan builder
+
+crimson replay list        # List replays
+crimson replay play        # Play replay
+crimson replay verify      # Verify replay
+crimson replay render      # Render to video
+crimson replay benchmark   # Benchmark performance
+crimson replay info        # Extract timeline
+
+crimson dbg record         # Record CDT trace
+crimson dbg health         # Trace health check
+crimson dbg verify         # Verify schema
+crimson dbg diff           # Compare traces
+crimson dbg bisect         # Bisect divergence
+crimson dbg tick           # Inspect tick
+crimson dbg entity         # Entity history
+crimson dbg query          # Query DSL
+crimson dbg focus          # Focus tick report
+crimson dbg viz            # HTML visualization
+
+crimson net host           # Host network session
+crimson net join           # Join session
+
+crimson relay serve        # Run relay server
+```
+
+## Global Options
+
+These options are available across most commands:
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files (saves, config, logs, replays). Defaults to per-user OS data directory.
+  
+  Override with `CRIMSON_RUNTIME_DIR` environment variable.
+</ParamField>
+
+<ParamField path="--assets-dir" type="Path">
+  Assets root directory (PAQ files or extracted assets). Defaults to `base-dir`.
+  
+  Missing .paq files are automatically downloaded.
+</ParamField>
+
+<ParamField path="--help" type="flag">
+  Show help message and exit.
+</ParamField>
+
+## Environment Variables
+
+<ParamField path="CRIMSON_RUNTIME_DIR" type="string">
+  Override default runtime directory location.
+  
+  ```bash
+  export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+  crimson
+  ```
+</ParamField>
+
+## Exit Codes
+
+- `0` — Success
+- `1` — General error (file not found, parse error, etc.)
+- `2` — Query syntax error (dbg query)
+- `3` — Replay verification score mismatch
+
+## Output Formats
+
+Many commands support multiple output formats:
+
+- `--format human` — Human-readable text (default)
+- `--format json` — Machine-readable JSON
+- `--json-out <path>` — Write JSON to file
+
+## Common Patterns
+
+### Run with Custom Runtime Directory
+
+```bash
+# Keep everything local to checkout
+export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+crimson
+```
+
+### Extract Original Game Assets
+
+```bash
+crimson extract path/to/game_dir artifacts/assets
+```
+
+### Deterministic Seeded Run
+
+```bash
+crimson --seed 12345 --no-intro
+```
+
+### Shareware Demo Mode
+
+```bash
+crimson --demo
+```
+
+### Enable Debug Features
+
+```bash
+crimson --debug  # Cheats and overlays
+```
+
+## Platform Notes
+
+### Wayland on Linux
+
+Current PyPI raylib wheels are X11-oriented on x86_64. You may need:
+
+```bash
+sudo apt install xwayland libx11-6
+```
+
+See [raylib-python-cffi#199](https://github.com/electronstudio/raylib-python-cffi/pull/199) for details.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Run Command" icon="play" href="/cli/run">
+    Launch the game with custom settings
+  </Card>
+  <Card title="Replay System" icon="video" href="/cli/replay/overview">
+    Record, verify, and render replays
+  </Card>
+  <Card title="Extract Archives" icon="file-zipper" href="/cli/extract">
+    Extract PAQ archives to filesystem
+  </Card>
+  <Card title="Debug Tools" icon="bug" href="/cli/debug/view">
+    Debug views and trace tools
+  </Card>
+</CardGroup>

@@ -1,0 +1,388 @@
+---
+title: Differential Testing
+description: Automated parity verification between original and rewrite using replay-based comparison
+---
+
+This page documents the differential testing workflow used to verify behavioral parity between the original Crimsonland binary and the Python reimplementation.
+
+## Overview
+
+Differential testing ensures the rewrite matches the original by:
+
+1. **Capturing** a gameplay session from the original with Frida
+2. **Replaying** the same inputs in the rewrite (headless)
+3. **Comparing** state checkpoints tick-by-tick
+4. **Reporting** divergences with field-level granularity
+
+## Workflow
+
+<Steps>
+  <Step title="Capture Original Run">
+    Instrument the original game to record inputs and state:
+
+    ```bash
+    # Attach Frida capture script
+    frida -n crimsonland.exe -l scripts/frida/gameplay_diff_capture.js
+    ```
+
+    **Captures**:
+    - Input events (keyboard, mouse)
+    - RNG seed and call sequence
+    - State snapshots every N ticks
+    - Final score, kills, time
+
+    **Output**: `gameplay_diff_capture.json`
+  </Step>
+
+  <Step title="Replay in Rewrite">
+    Run the rewrite in headless mode with captured inputs:
+
+    ```bash
+    uv run crimson replay verify gameplay_diff_capture.json
+    ```
+
+    The rewrite:
+    - Seeds RNG with captured seed
+    - Feeds inputs from capture file
+    - Steps simulation tick-by-tick
+    - Generates state checkpoints
+  </Step>
+
+  <Step title="Compare State">
+    The verifier compares each checkpoint field-by-field:
+
+    ```python
+    def compare_checkpoint(expected, actual, tick):
+        for field in checkpoint_fields:
+            if abs(expected[field] - actual[field]) > tolerance:
+                report_divergence(tick, field, expected[field], actual[field])
+    ```
+
+    **Tolerance**: `1e-5` for floats, exact match for integers.
+  </Step>
+
+  <Step title="Fix Divergences">
+    When a divergence is found:
+
+    1. Identify the first divergent tick
+    2. Inspect the divergent field (position, health, RNG count)
+    3. Trace back to the function that writes that field
+    4. Compare decompiled logic with rewrite implementation
+    5. Fix the rewrite and re-verify
+  </Step>
+</Steps>
+
+## Capture Format
+
+The differential capture file contains:
+
+```json
+{
+  "metadata": {
+    "version": "1.0",
+    "mode": "survival",
+    "seed": 12345,
+    "tick_rate": 60,
+    "duration_ticks": 3600
+  },
+  "inputs": [
+    {"tick": 0, "keys": ["W"], "mouse": [400, 300]},
+    {"tick": 5, "keys": ["W", "LMB"], "mouse": [450, 280]},
+    ...
+  ],
+  "checkpoints": [
+    {
+      "tick": 100,
+      "player": {
+        "health": 100.0,
+        "pos_x": 432.5,
+        "pos_y": 300.0,
+        "weapon_id": 1,
+        "ammo": 12.0
+      },
+      "creatures": [
+        {"index": 0, "type": 3, "health": 20.0, "pos_x": 500.0},
+        {"index": 5, "type": 5, "health": 50.0, "pos_x": 600.0}
+      ],
+      "projectiles": [
+        {"index": 0, "type": 1, "pos_x": 440.0, "life_timer": 0.3}
+      ],
+      "rng_calls": 234
+    },
+    ...
+  ],
+  "final": {
+    "score": 15000,
+    "kills": 120,
+    "time": 180.5
+  }
+}
+```
+
+## Checkpoint Fields
+
+### Player State
+
+```python
+player_fields = [
+    "health",
+    "pos_x", "pos_y",
+    "weapon_id",
+    "ammo",
+    "experience",
+    "level",
+    "fire_bullets_timer",
+    "shield_timer"
+]
+```
+
+### Creature Pool
+
+```python
+creature_fields = [
+    "active",
+    "type_id",
+    "health",
+    "pos_x", "pos_y",
+    "vel_x", "vel_y"
+]
+```
+
+### Projectile Pool
+
+```python
+projectile_fields = [
+    "active",
+    "type_id",
+    "pos_x", "pos_y",
+    "life_timer",
+    "owner_id"
+]
+```
+
+### Global Counters
+
+```python
+global_fields = [
+    "rng_calls",      # Total rand() invocations
+    "tick_counter",   # Simulation tick
+    "kill_count",
+    "score"
+]
+```
+
+## Divergence Analysis
+
+### Example Report
+
+```
+=== DIVERGENCE DETECTED ===
+Tick: 347
+Field: player[0].pos_x
+Expected: 432.500000
+Actual:   432.501007
+Delta:    0.001007
+
+RNG call count:
+  Expected: 1204
+  Actual:   1205
+  Delta:    +1 (extra call)
+```
+
+### Root Cause Process
+
+1. **Identify First Divergence**
+   - Tick 347, `pos_x` differs by 0.001
+   - RNG call count differs (+1 call)
+
+2. **Trace RNG Call**
+   - Extra RNG call between tick 346 and 347
+   - Search rewrite for `rand()` calls in player/creature/projectile update
+
+3. **Find the Culprit**
+   ```python
+   # Rewrite has extra rand() call:
+   if random.random() < 0.1:  # WRONG: extra RNG call
+       spawn_particle()
+   
+   # Original uses pre-rolled dice:
+   if particle_spawn_dice > 0.9:  # Rolled once per frame
+       spawn_particle()
+   ```
+
+4. **Fix and Re-verify**
+   ```bash
+   uv run crimson replay verify capture.json
+   # PASS: All 3600 ticks match
+   ```
+
+## Test Coverage
+
+### Mode Coverage
+
+<CardGroup cols={2}>
+  <Card title="Survival" icon="check">
+    Full parity across 1000+ tick runs
+  </Card>
+  <Card title="Rush" icon="check">
+    Verified spawn timing and wave logic
+  </Card>
+  <Card title="Quests" icon="check">
+    All 90 quest levels verified
+  </Card>
+  <Card title="Tutorial" icon="check">
+    Scripted sequence matches original
+  </Card>
+</CardGroup>
+
+### Subsystem Coverage
+
+- Player movement and combat
+- Creature AI and pathfinding
+- Projectile physics and collision
+- Weapon fire rate and reload
+- Perk effects and stacking
+- Bonus spawn and timers
+- Experience and leveling
+- Score calculation
+
+## Automated Tests
+
+The test suite includes differential replay tests:
+
+```python
+def test_survival_parity_1000_ticks(capture_fixture):
+    """Verify 1000 tick Survival run matches original."""
+    result = replay_runner.verify_checkpoints(capture_fixture)
+    
+    assert result.all_fields_match
+    assert result.rng_call_count_match
+    assert result.final_score_match
+
+def test_quest_1_1_complete(quest_1_1_capture):
+    """Verify Quest 1-1 completion matches original."""
+    result = replay_runner.verify_checkpoints(quest_1_1_capture)
+    
+    assert result.quest_complete
+    assert result.time_match
+    assert result.kills_match
+```
+
+Run:
+```bash
+uv run pytest tests/parity/
+```
+
+## Capture Guidelines
+
+### Deterministic Captures
+
+For reproducible verification:
+
+1. **Use fixed seed**
+   ```python
+   seed = 12345
+   random.seed(seed)
+   ```
+
+2. **Record full input state**
+   - Every key press/release
+   - Mouse position every frame
+   - Timestamp or tick number
+
+3. **Checkpoint frequently**
+   - Every 10-100 ticks
+   - After major events (level up, weapon pickup)
+
+4. **Capture metadata**
+   - Game version/build
+   - Mode and difficulty
+   - Player config (keybinds, resolution)
+
+### Quest-Specific Captures
+
+Quest mode requires per-stage files:
+
+```
+gameplay_diff_capture.quest_1_0.json  # Quest 1-0
+gameplay_diff_capture.quest_1_1.json  # Quest 1-1
+...
+gameplay_diff_capture.quest_9_9.json  # Quest 9-9
+```
+
+Each file contains:
+- Quest-specific spawn scripts
+- Stage completion criteria
+- Expected final stats
+
+## Headless Simulation
+
+The rewrite's headless mode:
+
+```python
+def step_headless(world_state, input_frame):
+    """Single deterministic simulation step."""
+    # Apply inputs
+    world_state.player.update_input(input_frame)
+    
+    # Step subsystems in fixed order
+    player_update(world_state, delta_time)
+    creature_update(world_state, delta_time)
+    projectile_update(world_state, delta_time)
+    bonus_update(world_state, delta_time)
+    
+    # Capture checkpoint
+    checkpoint = create_checkpoint(world_state)
+    
+    return checkpoint
+```
+
+**No rendering, audio, or timing jitter** - pure deterministic simulation.
+
+## Float Precision Handling
+
+Float comparison uses epsilon tolerance:
+
+```python
+def float_equal(a, b, epsilon=1e-5):
+    return abs(a - b) < epsilon
+```
+
+**Why**: x87 FPU rounding and Python float64 → float32 conversions introduce tiny errors.
+
+**Strict mode**: For critical fields (health, ammo), use `epsilon=0` (exact match).
+
+## CI Integration
+
+Differential tests run on every commit:
+
+```yaml
+# .github/workflows/parity.yml
+name: Parity Tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run parity tests
+        run: |
+          uv run pytest tests/parity/ --capture-dir=test_fixtures/captures/
+```
+
+**Fast feedback loop** - catch regressions immediately.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Frida Capture" href="/reverse-engineering/runtime/frida-capture">
+    Capturing differential testing inputs
+  </Card>
+  <Card title="Replay System" href="/rewrite/replay-system">
+    Deterministic replay architecture
+  </Card>
+  <Card title="Float Parity Policy" href="/rewrite/float-parity-policy">
+    Float32 precision contracts
+  </Card>
+</CardGroup>

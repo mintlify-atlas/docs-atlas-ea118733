@@ -1,0 +1,396 @@
+---
+title: Audio System
+description: Music, SFX, and audio routing for gameplay events
+---
+
+The audio system handles music playback, sound effects, and audio routing for gameplay events.
+
+## Architecture
+
+- **`src/grim/audio.py`** — Core audio playback (music streams)
+- **`src/grim/sfx.py`** — Sound effects system
+- **`src/grim/music.py`** — Music pack loading
+- **`src/crimson/audio_router.py`** — Gameplay audio event routing
+- **`src/crimson/weapon_sfx.py`** — Weapon sound mapping
+
+## Music System
+
+### Music Packs
+
+Music is loaded from `music.paq` archive:
+
+```python src/grim/music.py
+class MusicState(msgspec.Struct):
+    theme_music: rl.Music | None
+    game_tunes: list[rl.Music]
+    current_game_tune_index: int = 0
+    game_tune_started: bool = False
+
+def load_music_pack(
+    assets_dir: Path,
+) -> MusicState:
+    """Load music from PAQ archive."""
+    
+    # Load theme (menu music)
+    theme = rl.load_music_stream(
+        str(assets_dir / "music/theme.ogg")
+    )
+    
+    # Load game tunes (in-game music)
+    game_tunes = []
+    for i in range(1, 6):  # 5 game tunes
+        tune = rl.load_music_stream(
+            str(assets_dir / f"music/game{i}.ogg")
+        )
+        game_tunes.append(tune)
+    
+    return MusicState(
+        theme_music=theme,
+        game_tunes=game_tunes,
+    )
+```
+
+### Music Playback
+
+```python src/grim/audio.py
+class AudioState(msgspec.Struct):
+    music: MusicState
+    sfx: SfxState
+    music_volume: float = 0.5
+    sfx_volume: float = 0.5
+
+def update_audio(audio: AudioState, dt: float) -> None:
+    """Update audio streams."""
+    
+    # Update music stream
+    if audio.music.theme_music is not None:
+        rl.update_music_stream(audio.music.theme_music)
+    
+    if audio.music.game_tune_started:
+        current_tune = audio.music.game_tunes[
+            audio.music.current_game_tune_index
+        ]
+        rl.update_music_stream(current_tune)
+
+def trigger_game_tune(
+    audio: AudioState,
+    rand: Callable[[], int] | None = None,
+) -> str | None:
+    """Start game music (first hit in Survival)."""
+    
+    if audio.music.game_tune_started:
+        return None
+    
+    # Stop theme music
+    if audio.music.theme_music is not None:
+        rl.stop_music_stream(audio.music.theme_music)
+    
+    # Pick random game tune
+    if rand is not None:
+        index = rand() % len(audio.music.game_tunes)
+    else:
+        index = random.randrange(len(audio.music.game_tunes))
+    
+    audio.music.current_game_tune_index = index
+    
+    # Start game tune
+    tune = audio.music.game_tunes[index]
+    rl.play_music_stream(tune)
+    rl.set_music_volume(tune, audio.music_volume)
+    
+    audio.music.game_tune_started = True
+    return f"game{index + 1}"
+```
+
+## Sound Effects System
+
+### SFX Loading
+
+```python src/grim/sfx.py
+class SfxState(msgspec.Struct):
+    sounds: dict[str, rl.Sound]
+    variants: dict[str, list[str]]  # SFX with multiple variants
+
+def load_sfx_pack(
+    assets_dir: Path,
+) -> SfxState:
+    """Load SFX from PAQ or unpacked directory."""
+    
+    sounds = {}
+    variants = defaultdict(list)
+    
+    sfx_dir = assets_dir / "sfx"
+    for wav_file in sfx_dir.glob("*.wav"):
+        key = wav_file.stem
+        sounds[key] = rl.load_sound(str(wav_file))
+        
+        # Detect variants (e.g., sfx_zombie_die_01, 02, 03)
+        if key[-3] == '_' and key[-2:].isdigit():
+            base = key[:-3]
+            variants[base].append(key)
+    
+    return SfxState(
+        sounds=sounds,
+        variants=dict(variants),
+    )
+```
+
+### SFX Playback
+
+```python src/grim/sfx.py
+def play_sfx(
+    audio: AudioState,
+    key: str | None,
+    *,
+    rng: random.Random | None = None,
+    allow_variants: bool = True,
+    reflex_boost_timer: float = 0.0,
+) -> None:
+    """Play sound effect with variant selection."""
+    
+    if key is None:
+        return
+    
+    # Handle variants
+    if allow_variants and key in audio.sfx.variants:
+        variant_keys = audio.sfx.variants[key]
+        if rng is not None:
+            idx = rng.randrange(len(variant_keys))
+        else:
+            idx = random.randrange(len(variant_keys))
+        key = variant_keys[idx]
+    
+    # Get sound
+    sound = audio.sfx.sounds.get(key)
+    if sound is None:
+        return
+    
+    # Apply Reflex Boost pitch shift
+    pitch = 1.0
+    if reflex_boost_timer > 0:
+        # Slow down audio during Reflex Boost
+        pitch = 0.5 + (1.0 - reflex_boost_timer / 8.0) * 0.5
+    
+    rl.set_sound_pitch(sound, pitch)
+    rl.set_sound_volume(sound, audio.sfx_volume)
+    rl.play_sound(sound)
+```
+
+<Note>
+  **Reflex Boost** slows down SFX pitch to match the time-scale effect.
+</Note>
+
+## Audio Routing
+
+Gameplay events are routed to appropriate SFX:
+
+```python src/crimson/audio_router.py
+class AudioRouter(msgspec.Struct):
+    audio: AudioState | None
+    audio_rng: random.Random | None
+    demo_mode_active: bool = False
+    sfx_enabled: bool = True
+    reflex_boost_timer_source: Callable[[], float] | None = None
+    
+    def play_sfx(self, key: str | None) -> None:
+        if self.audio is None or not self.sfx_enabled:
+            return
+        
+        play_sfx(
+            self.audio,
+            key,
+            rng=self.audio_rng,
+            reflex_boost_timer=self._reflex_boost_timer(),
+        )
+```
+
+### Weapon Audio
+
+```python src/crimson/audio_router.py
+def handle_player_audio(
+    self,
+    player: PlayerState,
+    *,
+    prev_shot_seq: int,
+    prev_reload_active: bool,
+    prev_reload_timer: float,
+) -> None:
+    """Handle player weapon audio."""
+    
+    weapon = WEAPON_BY_ID[player.weapon.weapon_id]
+    
+    # Fire sound
+    if int(player.shot_seq) > int(prev_shot_seq):
+        if float(player.fire_bullets_timer) > 0.0:
+            # Fire Bullets override
+            fire_bullets = WEAPON_BY_ID[WeaponId.FIRE_BULLETS]
+            plasma_minigun = WEAPON_BY_ID[WeaponId.PLASMA_MINIGUN]
+            self.play_sfx(fire_bullets.fire_sound)
+            self.play_sfx(plasma_minigun.fire_sound)
+        else:
+            self.play_sfx(weapon.fire_sound)
+    
+    # Reload sound
+    reload_started = (
+        not prev_reload_active and player.weapon.reload_active
+    ) or (
+        player.weapon.reload_timer > prev_reload_timer + 1e-6
+    )
+    if reload_started:
+        self.play_sfx(weapon.reload_sound)
+```
+
+### Hit and Death SFX
+
+```python
+def play_hit_sfx(
+    self,
+    hits: list[ProjectileHit],
+    *,
+    game_mode: GameMode,
+    rand: Callable[[], int],
+) -> None:
+    """Play hit sound effects."""
+    
+    if self.audio is None or not hits:
+        return
+    
+    # Cap at 4 hit SFX per frame
+    end = min(len(hits), 4)
+    
+    for idx in range(end):
+        # Trigger game tune on first hit (Survival only)
+        if game_mode == GameMode.SURVIVAL:
+            self.trigger_game_tune()
+        
+        # Play hit SFX
+        type_id = hits[idx].type_id
+        sfx_key = self._hit_sfx_for_type(type_id, rand=rand)
+        self.play_sfx(sfx_key)
+
+def play_death_sfx(
+    self,
+    deaths: Sequence[CreatureDeath],
+    *,
+    rand: Callable[[], int],
+) -> None:
+    """Play creature death sounds."""
+    
+    if self.audio is None or not deaths:
+        return
+    
+    # Cap at 5 death SFX per frame
+    for idx in range(min(len(deaths), 5)):
+        death = deaths[idx]
+        variants = CREATURE_DEATH_SFX[death.type_id]
+        sfx_key = variants[rand() % len(variants)]
+        self.play_sfx(sfx_key)
+```
+
+## SFX Mapping
+
+Sound effects are mapped to gameplay events:
+
+### Weapon SFX
+
+```python src/crimson/weapon_sfx.py
+WEAPON_SFX_MAP = {
+    WeaponId.PISTOL: (
+        "sfx_pistol_fire",
+        "sfx_pistol_reload",
+    ),
+    WeaponId.SHOTGUN: (
+        "sfx_shotgun_fire",
+        "sfx_shotgun_reload",
+    ),
+    WeaponId.PLASMA_MINIGUN: (
+        "sfx_plasma_fire",
+        "sfx_plasma_reload",
+    ),
+    # ... more weapons
+}
+```
+
+### Creature Death SFX
+
+```python src/crimson/audio_router.py
+CREATURE_DEATH_SFX = {
+    CreatureTypeId.ZOMBIE: (
+        "sfx_zombie_die_01",
+        "sfx_zombie_die_02",
+        "sfx_zombie_die_03",
+        "sfx_zombie_die_04",
+    ),
+    CreatureTypeId.LIZARD: (
+        "sfx_lizard_die_01",
+        "sfx_lizard_die_02",
+        "sfx_lizard_die_03",
+        "sfx_lizard_die_04",
+    ),
+    # ... more creature types
+}
+```
+
+### Hit SFX
+
+```python
+BULLET_HIT_SFX = (
+    "sfx_bullet_hit_01",
+    "sfx_bullet_hit_02",
+    "sfx_bullet_hit_03",
+    "sfx_bullet_hit_04",
+    "sfx_bullet_hit_05",
+    "sfx_bullet_hit_06",
+)
+```
+
+## Deterministic Audio
+
+For replay verification, audio routing must be deterministic:
+
+```python
+# Use seeded RNG for variant selection
+audio_rng = random.Random(seed)
+
+# SFX selection uses deterministic RNG
+idx = audio_rng.randrange(len(variants))
+sfx_key = variants[idx]
+```
+
+<Check>
+  Presentation commands include the exact SFX keys to play, ensuring replay audio is deterministic.
+</Check>
+
+## Volume Control
+
+Volume is controlled from `crimson.cfg`:
+
+```python src/grim/config.py
+class CrimsonConfig(msgspec.Struct):
+    music_volume: int = 50    # 0-100
+    sfx_volume: int = 50      # 0-100
+
+def apply_volume_settings(
+    audio: AudioState,
+    config: CrimsonConfig,
+) -> None:
+    audio.music_volume = config.music_volume / 100.0
+    audio.sfx_volume = config.sfx_volume / 100.0
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Input System" icon="keyboard" href="/rewrite/systems/input">
+    Learn about input handling
+  </Card>
+  <Card title="Rendering System" icon="palette" href="/rewrite/systems/rendering">
+    Back to rendering
+  </Card>
+  <Card title="Grim Module" icon="engine" href="/rewrite/modules/grim">
+    Engine layer details
+  </Card>
+  <Card title="Audio Router Source" icon="code" href="https://github.com/banteg/crimson/blob/main/src/crimson/audio_router.py">
+    View source code
+  </Card>
+</CardGroup>

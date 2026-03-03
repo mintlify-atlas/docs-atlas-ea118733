@@ -1,0 +1,201 @@
+---
+title: replay list
+description: List replay files with metadata
+---
+
+Display all replay files under the runtime replays directory with summary metadata.
+
+## Usage
+
+```bash
+crimson replay list [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files.
+  
+  Default: Per-user OS data directory
+  
+  Replays are searched under `base-dir/replays/`
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+<ParamField path="--color" type="flag" default="true">
+  Enable ANSI colors in table output.
+  
+  Use `--no-color` to disable.
+</ParamField>
+
+## Output Format
+
+Displays a formatted table with:
+
+```
+replay                              mode        version  ticks   duration  score   kills  modified
+survival-2024-03-15-123456.crd     survival    0.7.0    36000   10:00     125000  1200   2024-03-15 12:34
+quest-1.5-2024-03-15-130000.crd    quest 1.5   0.7.0    18000   5:00      50000   450    2024-03-15 13:00
+rush-2024-03-15-140000.crd         rush        0.7.0    12000   3:20      75000   800    2024-03-15 14:00
+
+count=3 parsed=3 errors=0
+```
+
+## Columns
+
+<ParamField path="replay" type="string">
+  Replay filename relative to replays directory.
+</ParamField>
+
+<ParamField path="mode" type="string">
+  Game mode with color coding:
+  - <span style={{color: 'green'}}>survival</span> — Survival mode
+  - <span style={{color: 'magenta'}}>rush</span> — Rush mode
+  - <span style={{color: 'cyan'}}>quest X.Y</span> — Quest level
+  - <span style={{color: 'blue'}}>typo</span> — Typ-o-Shooter
+  
+  Multiplayer replays show player count: `survival 2p`
+</ParamField>
+
+<ParamField path="version" type="string">
+  Game version that created the replay.
+  
+  Color coding:
+  - <span style={{color: 'green'}}>Green</span> — Current version
+  - <span style={{color: 'yellow'}}>Yellow</span> — Older version
+  - <span style={{color: 'red'}}>Red</span> — Invalid/error
+</ParamField>
+
+<ParamField path="ticks" type="int">
+  Total simulation ticks in replay.
+</ParamField>
+
+<ParamField path="duration" type="string">
+  Formatted duration (MM:SS or HH:MM:SS).
+  
+  Calculated from ticks and tick rate (typically 60 tps).
+</ParamField>
+
+<ParamField path="score" type="int">
+  Final score/XP claimed in replay header.
+</ParamField>
+
+<ParamField path="kills" type="int">
+  Total creature kills claimed in replay header.
+</ParamField>
+
+<ParamField path="modified" type="timestamp">
+  File modification timestamp.
+  
+  Format: `YYYY-MM-DD HH:MM`
+</ParamField>
+
+## Examples
+
+### List All Replays
+
+```bash
+crimson replay list
+```
+
+Output:
+```
+replay                              mode        version  ticks   duration  score   kills  modified
+survival-2024-03-15-123456.crd     survival    0.7.0    36000   10:00     125000  1200   2024-03-15 12:34
+quest-1.1-2024-03-14-100000.crd    quest 1.1   0.6.8    5400    1:30      15000   120    2024-03-14 10:00
+
+count=2 parsed=2 errors=0
+```
+
+### Disable Colors
+
+```bash
+crimson replay list --no-color
+```
+
+### Custom Runtime Directory
+
+```bash
+crimson replay list --base-dir ./artifacts/runtime
+```
+
+### Pipe to File
+
+```bash
+crimson replay list --no-color > replays.txt
+```
+
+## Sorting
+
+Replays are sorted by modification time (newest first), then by filename.
+
+## Error Handling
+
+### No Replays Found
+
+```bash
+crimson replay list
+```
+
+Output:
+```
+no replay files found under /home/user/.local/share/crimsonland/replays
+```
+
+### Corrupted Replays
+
+Invalid replay files are included with error status:
+
+```
+replay                   mode     version  ticks  duration  score  kills  modified
+corrupted.crd           invalid  -        -      -         -      -      2024-03-15 10:00
+
+count=1 parsed=0 errors=1
+warning: corrupted.crd: invalid msgspec structure
+```
+
+### Version Mismatch
+
+Old replay versions are highlighted in yellow:
+
+```
+replay                   mode      version  ticks   duration  score   kills  modified
+old-run.crd             survival  0.5.0    36000   10:00     100000  1000   2024-01-01 12:00
+```
+
+## File Discovery
+
+Searches recursively under `base-dir/replays/`:
+
+```
+base-dir/replays/
+├── survival-*.crd
+├── rush-*.crd
+├── archived/
+│   └── old-run.crd        # Also found
+└── backups/
+    └── backup.crd.bak     # Ignored (not .crd)
+```
+
+Only files with `.crd` extension are processed.
+
+## Performance
+
+Listing is fast even with hundreds of replays:
+
+- Replays are parsed lazily (header only)
+- No full simulation required
+- Metadata extracted from replay header
+
+## Terminal Width
+
+Table output uses 200-column width by default. Adjust terminal size for best results.
+
+## See Also
+
+- [replay play](/cli/replay/play) — Play back a replay
+- [replay verify](/cli/replay/verify) — Verify replay integrity
+- [Replay System](/cli/replay/overview) — Overview

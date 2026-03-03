@@ -1,0 +1,952 @@
+---
+title: Perks System
+description: All 58 perks with complete effects and interactions
+icon: sparkles
+---
+
+# Perks System
+
+Perks are passive abilities chosen on level-up. The player picks one from a random selection of 5 (or more with Perk Expert/Master). Most perks are permanent, some are instant one-shots, and a few carry harsh trade-offs.
+
+## Perk Selection Mechanics
+
+### Level-Up Process
+
+1. Gain experience from kills and bonuses
+2. Reach XP threshold to level up
+3. Game pauses and displays perk selection screen
+4. Choose 1 perk from offered selection
+5. Perk applies immediately
+6. Resume gameplay
+
+### Selection Pool Size
+
+**Base**: 5 perks offered per level
+
+**With Perk Expert** (perk 21): 7 perks offered
+
+**With Perk Master** (perk 43): 7 perks offered (NOTE: Description says doubles, but runtime shows +2 like Expert)
+
+From `src/crimson/perks/ids.py:10-16`:
+
+```python
+class PerkFlags(IntFlag):
+    QUEST_MODE_ALLOWED = 0x1
+    TWO_PLAYER_ALLOWED = 0x2  
+    STACKABLE = 0x4
+```
+
+### Availability Filters
+
+**Quest Mode**: Only perks with `QUEST_MODE_ALLOWED` flag
+
+**Two-Player**: Only perks with `TWO_PLAYER_ALLOWED` flag
+
+**Stackable**: Can appear even if already owned
+
+### Two-Player Perk Sharing
+
+In co-op, perks are shared between players. Picking a perk grants it to all players simultaneously.
+
+## Complete Perk List
+
+All 58 perks extracted from `src/crimson/perks/ids.py` with implementation details from `src/crimson/perks/impl/`.
+
+<Accordion title="0. AntiPerk">
+**Internal sentinel. Never offered to the player.**
+
+Used as ID 0 placeholder in code. You should never see this.
+</Accordion>
+
+<Accordion title="1. Bloody Mess / Quick Learner">
+**+30% XP from creature kills**
+
+**Description**: "More the merrier. More blood guarantees a 30% better experience. You spill more blood and gain more experience points."
+
+**Effect**: Increases XP gained from kills by 30% (×1.3 multiplier)
+
+**Visual**: When blood effects enabled, creates extra gore decals and blood particles
+
+**Name Toggle**: Displays as "Quick Learner" when gore is disabled, "Bloody Mess" when enabled
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="2. Sharpshooter">
+**Eliminates spread, adds laser sight, -5% fire rate**
+
+**Description**: "Miraculously your aiming improves drastically, but you take a little bit more time on actually firing the gun. If you order now, you also get a fancy LASER SIGHT without ANY charge!"
+
+**Effect**: 
+- Forces weapon spread to near-zero
+- Adds visible laser sight from player to crosshair
+- Fire rate reduced by 5% (shot_cooldown ×1.05)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="3. Fastloader">
+**Reload 30% faster**
+
+**Description**: "Man, you sure know how to load a gun."
+
+**Effect**: Reload time ×0.7 (30% faster)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="4. Lean Mean Exp Machine">
+**Generates 10 XP every 0.25 seconds**
+
+**Description**: "Why kill for experience when you can make some of your own for free! With this perk the experience just keeps flowing in at a constant rate."
+
+**Effect**: Passive XP generation - 10 XP per 0.25s tick (40 XP/second)
+
+**Stacking**: Linear - 2 copies = 20 XP per tick = 80 XP/sec
+
+**Availability**: All modes
+**Stackable**: Yes
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="5. Long Distance Runner">
+**Movement speed caps at 2.8 (normally 2.0) when running**
+
+**Description**: "You move like a train that has feet and runs. You just need a little time to warm up. In other words you'll move faster the longer you run without stopping."
+
+**Effect**: Allows movement speed to ramp from 2.0 to 2.8 while moving continuously. Stopping causes rapid decay back to normal cap.
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="6. Pyrokinetic">
+**Creatures near crosshair produce heat flare visual effects**
+
+**Description**: "You see flames everywhere. Bare aiming at creatures causes them to heat up."
+
+**Effect**: Purely visual. Targeting creatures causes particle bursts and decals. No damage.
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="7. Instant Winner">
+**Immediately gain +2500 XP**
+
+**Description**: "2500 experience points. Right away. Take it or leave it."
+
+**Effect**: One-time instant +2500 XP on selection
+
+**Availability**: All modes
+**Stackable**: Yes (can select multiple times)
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="8. Grim Deal">
+**+18% of current XP, then instant death**
+
+**Description**: "I'll make you a deal: I'll give you 18% more experience points, and you'll give me your life. So you'll die but score higher. Ponder that one for a sec."
+
+**Effect**: 
+1. Grants +18% of current XP total
+2. Immediately kills player
+
+**Use Case**: Final XP boost before inevitable death for high score runs
+
+**Availability**: Survival only (disabled in quest and two-player)
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="9. Alternate Weapon">
+**Adds second weapon slot, -20% movement speed, swap delay**
+
+**Description**: "Ever fancied about having two weapons available for use? This might be your lucky day; with this perk you'll get an extra weapon slot for another gun! Carrying around two guns slows you down slightly though. (You can switch the weapon slots with RELOAD key)"
+
+**Effect**:
+- Adds second weapon slot (both weapons persistent)
+- Press reload key to swap between weapons
+- Movement speed -20% when perk active
+- +0.1s cooldown after swapping
+
+**Availability**: Quest mode only (disabled in two-player)
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="10. Plaguebearer">
+**Spread infectious disease to nearby weak enemies**
+
+**Description**: "You carry a horrible disease. Good for you: you are immune. Bad for them: it is contagious! (Monsters become resistant over time though.)"
+
+**Effect**:
+- Nearby creatures under 150 HP (within 30 units) get infected
+- Infected creatures take 15 damage every 0.5 seconds
+- Infection spreads to creatures within 45 units
+- Plague gradually suppresses itself via global counter
+
+**Suppressed**: Hardcore quest 2.10
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="11. Evil Eyes">
+**Freeze creature nearest crosshair**
+
+**Description**: "No living (nor dead) can resist the hypnotic power of your eyes: monsters freeze still as you look at them!"
+
+**Effect**: Creature nearest crosshair (within 12 units) is frozen (no AI, no movement) while targeted
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="12. Ammo Maniac">
+**+25% clip size (minimum +1 round)**
+
+**Description**: "You squeeze and you push and you pack your clips with about 20% more ammo than a regular fellow. They call you Ammo Maniac with a deep respect in their voices."
+
+**Effect**: Clip size ×1.25, rounded, minimum +1 round. Applies on weapon assignment.
+
+**Example**: Assault Rifle 25 → 31 rounds
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="13. Radioactive">
+**Green aura damages creatures within 100 units**
+
+**Description**: "You are the Radioactive-man; you have that healthy green glow around you! Others don't like it though, it makes them sick and nauseous whenever near you. It does affect your social life a bit."
+
+**Effect**: 
+- Damages creatures within 100 units
+- Damage scales with proximity: `(100 - distance) × 0.3`
+- Tick interval ~0.33s
+- Kills award XP
+
+**Max Damage**: 30 damage/tick at point-blank
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="14. Fastshot">
+**Fire rate +12% (shot cooldown ×0.88)**
+
+**Description**: "Funny how you make your gun spit bullets faster than the next guy. Even the most professional of engineers are astonished."
+
+**Effect**: Shot cooldown ×0.88 (12% faster fire rate)
+
+**Example**: Assault Rifle 0.117s → 0.103s per shot
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="15. Fatal Lottery">
+**50% chance: +10,000 XP. 50% chance: Death**
+
+**Description**: "Fifty-fifty chance of dying OR gaining 10k experience points. Place your bets. Interested, anyone?"
+
+**Effect**: Coin flip on selection:
+- Heads: +10,000 XP
+- Tails: Instant death
+
+**Availability**: Survival only (stackable)
+**Stackable**: Yes
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="16. Random Weapon">
+**Immediately grants random weapon**
+
+**Description**: "Here, have this weapon. No questions asked."
+
+**Effect**: Assigns random unlocked weapon (never Pistol, never current weapon)
+
+**Availability**: Quest mode (stackable)
+**Stackable**: Yes
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="17. Mr. Melee">
+**Counter-attack melee hits for 25 damage**
+
+**Description**: "You master the art of melee fighting. You don't just stand still when monsters come near -- you hit back. Hard."
+
+**Effect**: When creature hits player in melee, player automatically deals 25 damage back. Player still takes incoming damage.
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="18. Anxious Loader">
+**Mash fire button during reload to speed it up**
+
+**Description**: "When you can't stand waiting for your gun to be reloaded you can speed up the process by clicking your FIRE button repeatedly as fast as you can."
+
+**Effect**: Each fire button press during reload shaves 0.05s off remaining reload time
+
+**Optimal**: Rapid clicking can cut reload time significantly
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="19. Final Revenge">
+**Explode on death with 512-unit radius**
+
+**Description**: "Pick this and you'll get your revenge. It's a promise."
+
+**Effect**: On death, player explodes dealing `(512 - distance) × 5` damage in 512-unit radius
+
+**Max Damage**: 2560 damage at epicenter
+
+**Availability**: Survival only
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="20. Telekinetic">
+**Aim at bonuses to collect them remotely**
+
+**Description**: "Picking up bonuses has never been so easy and FUN. You can pick up bonuses simply by aiming at them for a while. Ingenious."
+
+**Effect**: Aim at bonus within 24 units for 650ms to collect remotely (no movement required)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="21. Perk Expert">
+**Perk selection shows 7 choices (instead of 5)**
+
+**Description**: "You sure know how to pick a perk -- most people just don't see that extra perk laying around. This gives you the opportunity to pick the freshest and shiniest perks from the top."
+
+**Effect**: Increases perk selection pool from 5 to 7 options
+
+**Unlocks**: Perk Master (perk 43)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="22. Unstoppable">
+**No knockback or spread penalty from hits**
+
+**Description**: "Monsters can't slow you down with their nasty scratches and bites. It still hurts but you simply ignore the pain."
+
+**Effect**: Taking damage no longer causes knockback or spread increase. Damage still applies.
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="23. Regression Bullets">
+**Fire during reload by spending XP instead of ammo**
+
+**Description**: "Attempt to shoot with an empty clip leads to a severe loss of experience. But hey, whatever makes them go down, right?"
+
+**Effect**:
+- Can fire during reload by spending XP
+- Cost: ×4 for fire weapons, ×200 for others  
+- XP can't go negative
+- Prevents reload restart mid-reload
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="24. Infernal Contract">
+**+3 levels and +3 perk picks, but drops HP to 0.1**
+
+**Description**: "In exchange for your soul, a dark stranger is offering you three (3) new perks. To collect his part of the bargain soon enough, your health is reduced to a near-death status. Just sign down here below this pentagram.."
+
+**Effect**:
+1. Grants +3 levels immediately
+2. Grants +3 pending perk selections
+3. Reduces all alive players to 0.1 HP
+
+**Blocked**: Not offered while Death Clock active
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="25. Poison Bullets">
+**1-in-8 chance per hit to poison target**
+
+**Description**: "You tend to explicitly treat each of your bullets with rat poison. You do it for good luck, but it seems to have other side effects too."
+
+**Effect**: 
+- 12.5% chance per projectile hit to poison
+- Poisoned creatures take 60 damage/sec (180/sec with Toxic Avenger)
+- Shows red aura on poisoned enemies
+
+**Suppressed**: Hardcore quest 2.10
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="26. Dodger">
+**1-in-5 chance to dodge incoming hits**
+
+**Description**: "It seems so stupid just to take the hits. Each time a monster attacks you, you have a chance to dodge the attack."
+
+**Effect**: 20% chance to completely avoid incoming damage
+
+**Overridden**: By Ninja (better dodge chance)
+
+**Unlocks**: Ninja (perk 40)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="27. Bonus Magnet">
+**Increases bonus spawn frequency**
+
+**Description**: "You somehow seem to lure all kinds of bonuses to appear around you more often."
+
+**Effect**: When kill doesn't spawn bonus, grants second chance roll. Stacks with Pistol's bonus boost.
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="28. Uranium Filled Bullets">
+**Bullet damage ×2**
+
+**Description**: "Your bullets have a nice creamy uranium filling. Yummy. Now that's gotta hurt the monsters more, right?"
+
+**Effect**: All bullet-type damage ×2
+
+**Applies To**: Damage type 1 (bullets)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 1.3
+</Accordion>
+
+<Accordion title="29. Doctor">
+**Bullet damage ×1.2, shows enemy health bars**
+
+**Description**: "With a single glance you can tell the medical condition of, well, anything. Also, being a doctor, you know exactly what hurts the most enabling you to do slightly more damage with your attacks."
+
+**Effect**: 
+- Bullet damage ×1.2
+- Health bar displayed under creature nearest crosshair
+
+**Applies To**: Damage type 1 (bullets)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 1.5
+</Accordion>
+
+<Accordion title="30. Monster Vision">
+**Yellow highlight behind all creatures**
+
+**Description**: "With your newly enhanced senses you can see all bad energy VERY clearly. That's got to be enough."
+
+**Effect**: 
+- All creatures get yellow highlight
+- Creature shadows hidden
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 1.7
+</Accordion>
+
+<Accordion title="31. Hot Tempered">
+**Periodically fires 8-shot plasma ring**
+
+**Description**: "It literally boils inside you. That's exactly why you need to let it out once in a while, unfortunately for those near you."
+
+**Effect**: Every 2-9 seconds (random), fires 8 plasma projectiles in ring pattern (alternating Plasma Minigun and Plasma Rifle)
+
+**Friendly Fire**: Yes (if enabled)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 1.9
+</Accordion>
+
+<Accordion title="32. Bonus Economist">
+**Timed bonuses last 50% longer**
+
+**Description**: "Your bonus power-ups last 50% longer than they normally would."
+
+**Effect**: Duration ×1.5 for Energizer, Double XP, Weapon Power Up, Shield, Freeze, Speed, Fire Bullets
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 2.1
+</Accordion>
+
+<Accordion title="33. Thick Skinned">
+**Trade 1/3 HP for 2/3 damage reduction**
+
+**Description**: "Trade 1/3 of your health for only receiving 2/3rds damage on attacks."
+
+**Effect**:
+- On pick: HP → HP × 2/3 (minimum 1)
+- All future damage ×2/3
+- Damage reduction applied before dodge rolls
+
+**Blocked**: Not offered while Death Clock active
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 2.3
+</Accordion>
+
+<Accordion title="34. Barrel Greaser">
+**Bullet damage ×1.4, projectiles travel 2x speed**
+
+**Description**: "After studying a lot of physics and friction you've come up with a way to make your bullets fly faster. More speed, more damage."
+
+**Effect**:
+- Bullet damage ×1.4
+- Projectile speed ×2
+
+**Applies To**: Damage type 1 (bullets)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 2.5
+</Accordion>
+
+<Accordion title="35. Ammunition Within">
+**Fire during reload by spending HP instead of ammo**
+
+**Description**: "Empty clip doesn't prevent you from shooting with a weapon; instead the ammunition is drawn from your health while you are reloading."
+
+**Effect**:
+- Can fire during reload by paying HP
+- Cost: 1 HP per shot (0.15 HP for fire weapons)
+- HP cost goes through damage processing (Thick Skinned/Dodger/Ninja can reduce)
+- Prevents reload restart mid-reload
+- Regression Bullets takes priority if both owned
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 2.7
+</Accordion>
+
+<Accordion title="36. Veins of Poison">
+**Poison creatures that hit you in melee**
+
+**Description**: "A strong poison runs through your veins. Monsters taking a bite of you are eventually to experience an agonizing death."
+
+**Effect**: Creatures that melee attack you (when shield not active) get poisoned (60 damage/sec)
+
+**Suppressed**: Hardcore quest 2.10
+
+**Unlocks**: Toxic Avenger (perk 37)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 2.9
+</Accordion>
+
+<Accordion title="37. Toxic Avenger">
+**Upgrades Veins of Poison to 180 damage/sec**
+
+**Description**: "You started out just by being poisonous. The next logical step for you is to become highly toxic -- the ULTIMATE TOXIC AVENGER. Most monsters touching you will just drop dead within seconds!"
+
+**Effect**: Upgrades Veins of Poison poison from 60/sec to 180/sec
+
+**Requires**: Veins of Poison (perk 36)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: Veins of Poison
+**Unlocked By**: Quest 3.1
+</Accordion>
+
+<Accordion title="38. Regeneration">
+**Heal 0.5 HP/sec toward 100 HP**
+
+**Description**: "Your health replenishes but very slowly. What more there is to say?"
+
+**Effect**: Heals toward 100 HP at ~0.5 HP/sec (50% chance per frame to heal +dt HP)
+
+**Bug**: Original version only heals player 1 in co-op (use --preserve-bugs)
+
+**Unlocks**: Greater Regeneration (perk 45)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 3.3
+</Accordion>
+
+<Accordion title="39. Pyromaniac">
+**Fire weapon damage ×1.5**
+
+**Description**: "You just enjoy using fire as your Tool of Destruction and you're good at it too; your fire based weapons do a lot more damage."
+
+**Effect**: Fire-type damage ×1.5
+
+**Applies To**: Damage type 4 (fire)
+
+**Offer Condition**: Only when player currently has Flamethrower equipped
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None (but requires Flamethrower to be offered)
+**Unlocked By**: Quest 3.5
+</Accordion>
+
+<Accordion title="40. Ninja">
+**1-in-3 chance to dodge incoming hits**
+
+**Description**: "You've taken your dodging abilities to the next level; monsters have a really hard time hitting you."
+
+**Effect**: 33% chance to completely avoid incoming damage. Overrides Dodger's 20% chance.
+
+**Requires**: Dodger (perk 26)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: Dodger
+**Unlocked By**: Quest 3.7
+</Accordion>
+
+<Accordion title="41. Highlander">
+**No health loss, but 10% instant death chance per hit**
+
+**Description**: "You are immortal. Well, almost immortal. Instead of actually losing health on attacks you've got a 10% chance of just dropping dead whenever a monster attacks you. There really can be only one, you know."
+
+**Effect**: 
+- Damage no longer reduces HP
+- Every hit has 10% chance of instant death
+- Hit disruption (knockback, spread) still applies unless Unstoppable owned
+
+**Availability**: Survival only
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 3.9
+</Accordion>
+
+<Accordion title="42. Jinxed">
+**Random events: self-damage or random creature death**
+
+**Description**: "Things happen near you. Strangest things. Creatures just drop dead and accidents happen. Beware."
+
+**Effect**: Every 2-4 seconds (random):
+- 10% chance to take 5 self-damage
+- If Freeze not active: random creature may die instantly (awards XP)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 4.1
+</Accordion>
+
+<Accordion title="43. Perk Master">
+**Perk selection shows 7 choices**
+
+**Description**: "Being the Perk Expert taught you a few things and now you are ready to take your training to the next level doubling the ability effect."
+
+**Effect**: Increases perk selection pool to 7 (same as Perk Expert)
+
+**NOTE**: Description says "doubling" but implementation shows +2 like Expert
+
+**Requires**: Perk Expert (perk 21)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: Perk Expert
+**Unlocked By**: Quest 4.3
+</Accordion>
+
+<Accordion title="44. Reflex Boosted">
+**Entire game runs 10% slower**
+
+**Description**: "To you the world seems to go on about 10% slower than to an average person. It can be rather irritating sometimes, but it does give you a chance to react better."
+
+**Effect**: Global time scale ×0.9 (everything slowed 10%)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 4.5
+</Accordion>
+
+<Accordion title="45. Greater Regeneration">
+**Upgrades Regeneration to ~1 HP/sec**
+
+**Description**: "Your health replenishes faster than ever."
+
+**Effect**: When regen tick triggers, heal ×2 amount (+2×dt instead of +dt). Effective average ~1 HP/sec.
+
+**Bug**: Original version has no runtime effect (use --preserve-bugs for no-op)
+
+**Requires**: Regeneration (perk 38)
+
+**Cleared By**: Death Clock (perk 47)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: Regeneration
+**Unlocked By**: Quest 4.7
+</Accordion>
+
+<Accordion title="46. Breathing Room">
+**Trade 2/3 HP to kill all on-screen enemies (no XP)**
+
+**Description**: "Trade 2/3rds of your health for the killing of every single creature on the screen. No, you don't get the experience."
+
+**Effect**:
+- On pick: HP → HP × 1/3
+- All on-screen creatures killed instantly
+- No XP awarded for kills
+
+**Availability**: Two-player mode only
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 4.9
+</Accordion>
+
+<Accordion title="47. Death Clock">
+**30-second countdown: immune to damage but HP drains to zero**
+
+**Description**: "You die exactly in 30 seconds. You can't escape your destiny, but feel free to go on a spree. Tick, tock."
+
+**Effect**:
+- On pick: HP set to 100
+- Clears Regeneration and Greater Regeneration
+- For 30 seconds: immune to all damage
+- HP drains steadily: 100 HP over 30s
+- Medikits stop spawning
+- Blocks certain perks from selection (Regen, Thick Skinned, etc.)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 5.2
+</Accordion>
+
+<Accordion title="48. My Favourite Weapon">
+**+2 clip size, disables weapon bonuses**
+
+**Description**: "You've grown very fond of your piece. You polish it all the time and talk nice to it, your precious. (+2 clip size, no more random weapon bonuses)"
+
+**Effect**:
+- +2 clip size on pick and future weapon assignments
+- Weapon bonuses disabled entirely (won't spawn or be collectable)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 5.3
+</Accordion>
+
+<Accordion title="49. Bandage">
+**Restore random HP between 1-50**
+
+**Description**: "Here, eat this bandage and you'll feel a lot better in no time. (restores up to 50% health)"
+
+**Effect**: Each alive player heals random amount 1-50 HP (independent rolls), clamped to 100
+
+**Bug**: Original version multiplies HP by ×1..×50 instead of adding (use --preserve-bugs)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 5.5
+</Accordion>
+
+<Accordion title="50. Angry Reloader">
+**Fire plasma ring at 50% reload progress**
+
+**Description**: "You hate it when you run out of shots. You HATE HATE HATE reloading your gun. Lucky for you, and strangely enough, your hate materializes as Mighty Balls of Fire. Or more like Quite Decent Balls of Fire, but it's still kinda neat, huh?"
+
+**Effect**: 
+- At 50% reload completion: fires plasma ring
+- Projectile count: `7 + floor(reload_time × 4)`
+- Example: 2.0s reload = 15 projectiles
+- Only triggers if reload time > 0.5s
+- Friendly fire applies
+
+**Note**: Pulse Gun (0.1s reload) never triggers
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 5.6
+</Accordion>
+
+<Accordion title="51. Ion Gun Master">
+**Ion damage and blast radius ×1.2**
+
+**Description**: "You're good with ion weapons. You're so good that not only your shots do slightly more damage but your ion blast radius is also increased."
+
+**Effect**: 
+- Ion damage ×1.2
+- Ion blast radius ×1.2
+- Global effect (any player's ion damage)
+
+**Applies To**: Damage type 7 (ion)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 5.8
+</Accordion>
+
+<Accordion title="52. Stationary Reloader">
+**Reload 3x faster when standing still**
+
+**Description**: "It's incredibly hard to reload your piece while moving around, you've noticed. In fact, realizing that, when you don't move a (leg) muscle you can reload the gun THREE TIMES FASTER!"
+
+**Effect**: Reload time ×0.33 (3x faster) when not moving
+
+**Synergy**: Stacks with Fastloader (0.7 × 0.33 = 0.23x reload time)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+**Unlocked By**: Quest 5.9
+</Accordion>
+
+<Accordion title="53. Man Bomb">
+**Stand still 4 seconds to fire 8-ion-shot ring**
+
+**Description**: "You have the ability to go boom for you are the MAN BOMB. Going boom requires a lot of concentration and standing completely still for a few seconds."
+
+**Effect**: 
+- Charge timer while standing still (4 seconds)
+- On trigger: fires 8 ion projectiles (alternating Ion Minigun and Ion Rifle)
+- Moving resets timer
+- Friendly fire applies
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="54. Fire Cough">
+**Periodically fire involuntary fire bullet**
+
+**Description**: "You have a fireball stuck in your throat. Repeatedly. Mind your manners."
+
+**Effect**: 
+- Every 2-5 seconds (random): fires 1 Fire Bullets projectile
+- Inherits current weapon spread
+- Weapon fire sound plays
+- Friendly fire applies
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="55. Living Fortress">
+**Bullet damage ×1.0 to ×2.5 based on stationary time**
+
+**Description**: "There comes a time in each man's life when you'd just rather not move anymore. Being a living fortress comes with extra benefits as well. You do more damage the longer you stand still."
+
+**Effect**: 
+- While standing still: timer ramps up over 30 seconds
+- Bullet damage multiplier: `timer × 0.05 + 1`
+- Max: ×2.5 at 30 seconds
+- Moving resets timer
+- In multiplayer: each player's timer stacks
+
+**Applies To**: Damage type 1 (bullets)
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="56. Tough Reloader">
+**Damage taken while reloading ×0.5**
+
+**Description**: "Damage received during reloading a weapon is halved."
+
+**Effect**: All damage ×0.5 while reload timer active
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+<Accordion title="57. Lifeline 50-50">
+**Kill every other on-screen creature (no XP)**
+
+**Description**: "The computer removes half of the wrong monsters for you. You don't gain any experience."
+
+**Effect**: 
+- On pick: removes every other creature from pool slots
+- Skips creatures with >500 HP or special flags
+- No XP awarded
+
+**Availability**: All modes
+**Stackable**: No
+**Prerequisites**: None
+</Accordion>
+
+## Perk Synergies
+
+See [Perk Interactions](/mechanics/advanced/perk-interactions) for detailed synergy and conflict documentation.
+
+**Notable Combos**:
+- **Uranium Filled Bullets + Barrel Greaser + Doctor**: ×3.36 bullet damage
+- **Dodger + Ninja**: 33% dodge (Ninja overrides Dodger)
+- **Veins of Poison + Toxic Avenger**: 180 damage/sec on melee attackers
+- **Regeneration + Greater Regeneration**: ~1 HP/sec healing
+- **Fastloader + Stationary Reloader**: 0.7 × 0.33 = 0.23x reload (77% faster)
+- **Perk Expert + Perk Master**: 7 choices per level (not 14 as description implies)
+
+## Related Documentation
+
+- [Perk Interactions](/mechanics/advanced/perk-interactions) - Synergies and conflicts
+- [Weapons](/mechanics/combat/weapons) - Weapons affected by perks
+- [Damage Calculations](/mechanics/combat/damage) - How perk modifiers stack
+
+## Source Code References
+
+- `src/crimson/perks/ids.py` - Perk IDs and metadata
+- `src/crimson/perks/impl/` - Perk implementation details
+- `src/crimson/perks/selection.py` - Perk offering logic
+- `src/crimson/perks/availability.py` - Quest/mode filtering

@@ -1,0 +1,226 @@
+---
+title: Game State Structures
+description: Global game state variables and configuration blobs
+---
+
+This page documents the main global state structures used by Crimsonland for game configuration, timing, and high-level state management.
+
+## Config Blob
+
+**Base**: `0x00480348` (`config_blob`)  
+**Size**: `0x480` bytes (1152 bytes)  
+**Type**: `crimson_cfg_t`
+
+The runtime configuration structure loaded from `crimson.cfg`.
+
+See [Config File Format](/reverse-engineering/formats/config-files) for complete layout.
+
+### Key Fields
+
+| Offset | Field | Type | Usage |
+|--------|-------|------|-------|
+| 0x1bc | screen_width | i32 | Display resolution |
+| 0x1c0 | screen_height | i32 | Display resolution |
+| 0x1c8 | keybinds_p1 | i32[13] | Player 1 input bindings |
+| 0x208 | keybinds_p2 | i32[13] | Player 2 input bindings |
+| 0x464 | sfx_volume | float | Sound effects volume (0-1) |
+| 0x468 | music_volume | float | Music volume (0-1) |
+
+## Save Status Blob
+
+**Base**: `0x00485540` (`game_status_blob`)  
+**Size**: `0x268` bytes (616 bytes)  
+**Type**: `game_status_t`
+
+Save game progress loaded from `game.cfg` (obfuscated on disk).
+
+See [Save File Format](/reverse-engineering/formats/save-files) for complete layout.
+
+### Key Fields
+
+| Offset | Field | Type | Usage |
+|--------|-------|------|-------|
+| 0x000 | quest_unlock_index | u16 | Max unlocked quest |
+| 0x004 | weapon_usage_counts | u32[53] | Per-weapon usage stats |
+| 0x0d8 | quest_play_counts | u32[91] | Per-quest attempt counts |
+| 0x244 | mode_play_survival | u32 | Survival mode play count |
+
+## Game State Machine
+
+**Base**: `0x00480850` (`game_state`)  
+**Type**: `i32`
+
+Current game mode/screen:
+
+| Value | State | Description |
+|-------|-------|-------------|
+| 0x01 | Main Menu | Title screen |
+| 0x02 | Play Menu | Mode selection |
+| 0x03 | Playing | Active gameplay |
+| 0x04 | Paused | Game paused |
+| 0x0a | Game Over | Death/completion screen |
+| 0x0c | Quest Select | Quest menu |
+| 0x15 | Credits | Credits screen |
+
+## Timing Globals
+
+### Delta Time
+
+**Base**: `0x00480840` (`delta_time`)  
+**Type**: `float`
+
+Frame delta time in seconds (typically 1/60 ≈ 0.0167).
+
+**Usage**: Multiply by this value for frame-rate independent movement:
+```c
+pos_x += vel_x * delta_time;
+```
+
+### Tick Counter
+
+**Base**: `0x00480850` (`game_tick`)  
+**Type**: `i32`
+
+Monotonically increasing tick counter (incremented each frame during gameplay).
+
+## RNG State
+
+**Base**: `0x00491234` (`rng_seed`)  
+**Type**: `u32`
+
+CRT `rand()` state. Updated by `crt_rand()` @ `0x00461746`:
+
+```c
+int crt_rand(void) {
+    rng_seed = rng_seed * 214013 + 2531011;
+    return (rng_seed >> 16) & 0x7fff;
+}
+```
+
+**Seeding**: Initialized with `time(NULL)` or explicit seed for deterministic replays.
+
+## Input State
+
+### Movement Scheme
+
+**Base**: `0x00480364` (`player_movement_scheme`)  
+**Type**: `i32`
+
+| Value | Scheme |
+|-------|--------|
+| 0 | Keyboard (WASD) |
+| 1 | Mouse movement |
+| 2 | Static (no movement) |
+| 3 | Analog stick |
+
+### Aim Scheme
+
+**Base**: `0x0048038c` (`player_aim_scheme`)  
+**Type**: `i32`
+
+| Value | Scheme |
+|-------|--------|
+| 0 | Keyboard (Q/E) |
+| 1 | Mouse aim |
+| 4 | Computer aim (auto-target) |
+| 5 | Analog stick |
+
+## Score and Stats
+
+### Current Score
+
+**Base**: `0x00480890` (`player_score`)  
+**Type**: `i32`
+
+Current score (kills, bonuses, quest objectives).
+
+### Kill Count
+
+**Base**: `0x00480894` (`kill_count`)  
+**Type**: `i32`
+
+Total creatures killed this session.
+
+## Mode-Specific State
+
+### Survival Wave
+
+**Base**: `0x004808a0` (`survival_wave`)  
+**Type**: `i32`
+
+Current wave number in Survival mode.
+
+### Quest Info
+
+**Base**: `0x004808b0` (`current_quest_major`)  
+**Type**: `i32`
+
+**Base**: `0x004808b4` (`current_quest_minor`)  
+**Type**: `i32`
+
+Currently active quest (major-minor index).
+
+## Weapon Tables
+
+### Weapon Data Table
+
+**Base**: `0x004d7a00` (`weapon_table`)  
+**Entry size**: `0x48` bytes  
+**Count**: 54 weapons
+
+Per-weapon static data (damage, fire rate, ammo, projectile type).
+
+See [Weapon Structures](/reverse-engineering/structs/weapons) for layout.
+
+### Weapon Ammo Class
+
+**Base**: `0x004d7a28` (`weapon_ammo_class`)  
+**Type**: `i32[54]`
+
+Ammo class for each weapon (affects reload behavior and hit effects).
+
+## Perk State
+
+### Perk Counts
+
+**Base**: `player_health + 0x94` (within player struct)  
+**Type**: `i32[0x80]` (128 entries)
+
+Per-player perk acquisition counts (indexed by perk ID).
+
+### Perk Metadata Table
+
+**Base**: `0x004d8000` (`perk_table`)  
+**Entry size**: `0x20` bytes  
+**Count**: 128 perks
+
+Per-perk metadata (name offset, icon, rarity, flags).
+
+See [Perk Structures](/reverse-engineering/structs/perks) for layout.
+
+## Creature Type Table
+
+**Base**: `0x00482764` (`creature_type_table`)  
+**Entry size**: `0x44` bytes  
+**Count**: 32 creature types
+
+Per-type data (health, speed, size, sprite frames).
+
+See [Entity Structures](/reverse-engineering/structs/entities) for layout.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Entity Structures" href="/reverse-engineering/structs/entities">
+    Creature, projectile, and effect pools
+  </Card>
+  <Card title="Weapon Structures" href="/reverse-engineering/structs/weapons">
+    Weapon table and player weapon state
+  </Card>
+  <Card title="Perk Structures" href="/reverse-engineering/structs/perks">
+    Perk counts and metadata
+  </Card>
+  <Card title="Config Format" href="/reverse-engineering/formats/config-files">
+    crimson.cfg binary layout
+  </Card>
+</CardGroup>

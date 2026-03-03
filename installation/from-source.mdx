@@ -1,0 +1,276 @@
+---
+title: Install from source
+description: Clone and run Crimsonland from source for development
+---
+
+Set up a development environment to run, modify, or contribute to Crimsonland.
+
+## Prerequisites
+
+- **Python 3.13 or higher**
+- **Git**
+- **uv** (recommended) - [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+## Clone the repository
+
+<Steps>
+  <Step title="Clone from GitHub">
+    Using GitHub CLI (recommended):
+    
+    ```bash
+    gh repo clone banteg/crimson
+    cd crimson
+    ```
+    
+    Or using git:
+    
+    ```bash
+    git clone https://github.com/banteg/crimson.git
+    cd crimson
+    ```
+  </Step>
+  
+  <Step title="Run from source">
+    Using uv (recommended):
+    
+    ```bash
+    uv run crimson
+    ```
+    
+    This automatically:
+    - Creates a virtual environment
+    - Installs dependencies
+    - Runs the game
+  </Step>
+</Steps>
+
+## Project structure
+
+The repository is organized as follows:
+
+```
+src/
+  crimson/          # Game logic — modes, weapons, perks, creatures, UI, replay
+  grim/             # Engine layer — raylib wrapper, PAQ/JAZ decoders, audio, fonts
+analysis/
+  ghidra/           # Name/type maps (source of truth) and raw decompile exports
+  frida/            # Runtime capture evidence (state snapshots, RNG traces)
+  windbg/           # Debugger session logs
+docs/               # 100+ pages: formats, structs, algorithms, parity tracking
+scripts/            # 40+ analysis and utility tools
+tests/              # 200+ tests: gameplay, perks, physics, replay, parity
+```
+
+## Development workflow
+
+### Running tests
+
+Run the test suite:
+
+```bash
+uv run pytest
+```
+
+With coverage:
+
+```bash
+uv run pytest --cov=crimson --cov-report=term-missing
+```
+
+### Code quality checks
+
+Run linting:
+
+```bash
+uv run ruff check .
+```
+
+Run type checking:
+
+```bash
+uv run ty check src
+```
+
+Run AST-grep code scan:
+
+```bash
+sg scan
+sg test
+```
+
+Run all checks:
+
+```bash
+just check
+```
+
+<Note>
+The `just` command requires [just](https://github.com/casey/just) to be installed.
+</Note>
+
+## Development dependencies
+
+Development dependencies are defined in the `dependency-groups` section of `pyproject.toml`:
+
+| Package | Purpose |
+|---------|----------|
+| `pytest` | Testing framework |
+| `pytest-cov` | Coverage reporting |
+| `pytest-mock` | Mocking utilities |
+| `syrupy` | Snapshot testing |
+| `ruff` | Linting and formatting |
+| `ty` | Type checking |
+| `import-linter` | Import dependency validation |
+| `numpy` | Numerical testing utilities |
+| `pylint` | Additional linting |
+| `mkdocstrings` | API documentation |
+| `zensical` | Documentation site generator |
+
+## Running specific components
+
+### Extract game assets
+
+Extract PAQ archives into a filesystem tree:
+
+```bash
+uv run crimson extract path/to/game_dir artifacts/assets
+```
+
+JAZ textures are automatically converted to PNG with alpha.
+
+### View quest scripts
+
+Print quest spawn scripts:
+
+```bash
+uv run crimson quests 1.1
+```
+
+### Launch debug views
+
+Run debug views and sandboxes:
+
+```bash
+uv run crimson view lighting-debug
+```
+
+### Replay commands
+
+List replays:
+
+```bash
+uv run crimson replay list
+```
+
+Play a replay:
+
+```bash
+uv run crimson replay play artifacts/runtime/replays/example.crimreplay
+```
+
+Verify replay:
+
+```bash
+uv run crimson replay verify artifacts/runtime/replays/example.crimreplay
+```
+
+## Building the documentation
+
+The project documentation is built with [zensical](https://github.com/banteg/zensical):
+
+```bash
+uv tool install zensical
+zensical serve
+```
+
+The docs will be available at `http://localhost:3000`.
+
+## Pre-commit hooks
+
+Install git hooks for automatic checks:
+
+```bash
+prek install -c prek.toml -t pre-commit -t pre-push
+```
+
+- `pre-commit` runs fast checks (ruff/import-linter/ty/docs/ast-grep)
+- `pre-push` runs heavy checks (pytest/build)
+
+Manual runs:
+
+```bash
+prek run --stage pre-commit
+prek run --stage pre-push
+```
+
+## Contributing
+
+Before contributing, please read:
+
+- [CONTRIBUTING.md](https://github.com/banteg/crimson/blob/main/CONTRIBUTING.md) - Development philosophy and guidelines
+- [Float parity policy](https://crimson.banteg.xyz/rewrite/float-parity-policy/) - Deterministic behavior requirements
+- [Differential playbook](https://crimson.banteg.xyz/frida/differential-playbook/) - Capture-driven parity workflow
+
+### Key principles
+
+1. **Deterministic parity + evidence-backed correctness** - Preserve native-faithful behavior and prove it with captures/replays/tests
+2. **Structural simplicity** - Prefer deleting complexity over adding layers
+3. **UX polish** - Only after parity is preserved
+
+### Verification commands
+
+Before committing:
+
+```bash
+just check
+```
+
+Before pushing:
+
+```bash
+just check && uv build
+```
+
+## Local runtime directory
+
+By default, runtime files (saves, config, logs, replays) are stored in your per-user data directory. To keep everything local to the checkout:
+
+```bash
+export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+uv run crimson
+```
+
+See [Runtime configuration](/installation/runtime-configuration) for more details.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Runtime configuration"
+    icon="gear"
+    href="/installation/runtime-configuration"
+  >
+    Customize runtime directories and configuration
+  </Card>
+  <Card
+    title="CLI reference"
+    icon="terminal"
+    href="/cli/overview"
+  >
+    Explore all available commands
+  </Card>
+  <Card
+    title="Architecture"
+    icon="sitemap"
+    href="/architecture/overview"
+  >
+    Understand the codebase structure
+  </Card>
+  <Card
+    title="Reverse engineering"
+    icon="magnifying-glass"
+    href="/reverse-engineering/overview"
+  >
+    Learn about the decompilation process
+  </Card>
+</CardGroup>

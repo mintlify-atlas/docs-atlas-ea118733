@@ -1,0 +1,500 @@
+---
+title: Struct Recovery
+description: Techniques for reconstructing data structures from decompiled code and runtime evidence
+---
+
+This page documents systematic approaches to recovering struct layouts, pool organizations, and data relationships from Crimsonland's stripped binaries.
+
+## Overview
+
+Without debug symbols or RTTI, struct layouts must be reconstructed by:
+
+1. **Static analysis** - Memory access patterns in decompiled code
+2. **Runtime capture** - Field values at known offsets via Frida
+3. **Cross-validation** - Confirming struct boundaries and field types
+
+## Pool Detection
+
+Crimsonland uses fixed-size pools for game entities. Identify them by looking for:
+
+### Consistent Stride Patterns
+
+```c
+// Access: base + index * stride + offset
+float value = *(float*)(0x004926b8 + i * 0x40 + 0x08);
+```
+
+**Indicates**:
+- Pool base: `0x004926b8`
+- Entry size: `0x40` bytes
+- Field offset: `0x08`
+
+### Loop Boundaries
+
+```c
+for (int i = 0; i < 0x60; i++) {
+    if (*(char*)(pool_base + i * 0x40) != 0) {
+        // Process entry
+    }
+}
+```
+
+**Pool size**: `0x60` entries × `0x40` bytes = `0x1800` bytes total
+
+## Known Pools
+
+<Accordion title="Projectile Pool">
+  **Base**: `0x004926b8`  
+  **Entry size**: `0x40` bytes  
+  **Count**: `0x60` entries  
+  **Total**: `0x1800` bytes
+
+  ```c
+  typedef struct {
+      u8 active;          // +0x00
+      u8 _pad[3];
+      float angle;        // +0x04
+      float pos_x;        // +0x08
+      float pos_y;        // +0x0c
+      float origin_x;     // +0x10
+      float origin_y;     // +0x14
+      float vel_x;        // +0x18
+      float vel_y;        // +0x1c
+      int type_id;        // +0x20
+      float life_timer;   // +0x24
+      float reserved;     // +0x28
+      float speed_scale;  // +0x2c
+      float damage_pool;  // +0x30
+      float hit_radius;   // +0x34
+      float base_damage;  // +0x38
+      int owner_id;       // +0x3c
+  } projectile_t;
+  ```
+</Accordion>
+
+<Accordion title="Player Pool">
+  **Base**: `0x004908d4` (`player_health` table)  
+  **Entry size**: `0x360` bytes  
+  **Count**: 4 players (max)  
+  **Note**: Some fields live at negative offsets before `player_health`
+
+  ```c
+  typedef struct {
+      // Negative offsets (before player_health)
+      float death_timer;     // -0x14
+      float pos_x;           // -0x10
+      float pos_y;           // -0x0c
+      float move_dx;         // -0x08
+      float move_dy;         // -0x04
+      
+      // Base address (player_health)
+      float health;          // +0x00
+      float heading;         // +0x08
+      float size;            // +0x10
+      // ... 200+ more fields
+      int keybinds[13];      // +0x308
+  } player_t;
+  ```
+</Accordion>
+
+<Accordion title="Creature Pool">
+  **Base**: `0x0048d0a8`  
+  **Entry size**: `0x98` bytes  
+  **Count**: `0x180` entries
+
+  ```c
+  typedef struct {
+      u8 active;             // +0x00
+      u8 _pad[3];
+      int type_id;           // +0x04
+      float pos_x;           // +0x08
+      float pos_y;           // +0x0c
+      float health;          // +0x10
+      float max_health;      // +0x14
+      float vel_x;           // +0x18
+      float vel_y;           // +0x1c
+      float size;            // +0x20
+      // ... more fields
+  } creature_t;
+  ```
+</Accordion>
+
+## Field Identification
+
+### 1. Track All Accesses
+
+Find every read/write to a pool:
+
+```bash
+# Ghidra: Search -> For Scalars
+# Search for base address: 0x004926b8
+```
+
+**Record**:
+- Offset from base
+- Operation (read/write)
+- Data type (byte, int, float)
+- Context (function, purpose)
+
+### 2. Group by Offset
+
+```text
+Offset  Type   Access    Context
++0x00   u8     R/W       Active flag (set on spawn, cleared on expire)
++0x04   float  W         Angle (spawn parameter)
++0x08   float  R/W       pos_x (movement update, collision)
++0x0c   float  R/W       pos_y (movement update, collision)
++0x24   float  R/W       life_timer (decremented, compared to 0)
++0x3c   int    W         owner_id (player index, used in hit tests)
+```
+
+### 3. Infer Field Names
+
+Based on usage:
+
+- **Decremented over time** → timer, countdown, lifetime
+- **Compared to zero** → flag, state check, death condition
+- **Updated with `+=`** → position, velocity, accumulator
+- **Set once on spawn** → type ID, owner, configuration
+
+### 4. Validate with Runtime
+
+Capture actual field values:
+
+```javascript
+// Frida hook
+Interceptor.attach(ptr("0x00420b90"), {  // projectile_update
+  onEnter: function() {
+    const pool = ptr("0x004926b8");
+    for (let i = 0; i < 5; i++) {
+      const entry = pool.add(i * 0x40);
+      const active = entry.readU8();
+      if (active) {
+        const pos_x = entry.add(0x08).readFloat();
+        const pos_y = entry.add(0x0c).readFloat();
+        console.log(`proj[${i}] pos=(${pos_x}, ${pos_y})`);
+      }
+    }
+  }
+});
+```
+
+**Output**:
+```
+proj[0] pos=(432.5, 300.0)
+proj[2] pos=(510.2, 275.8)
+```
+
+Compare to decompiled logic to confirm offsets.
+
+## Structure-of-Arrays vs Array-of-Structs
+
+### Array-of-Structs (AoS)
+
+All fields for one entry are contiguous:
+
+```c
+struct entry_t {
+    float x, y;
+    int id;
+};
+entry_t pool[100];
+
+// Access: pool[i].x, pool[i].y
+```
+
+**Detection**: Stride-based access with varying offsets.
+
+### Structure-of-Arrays (SoA)
+
+Each field is a separate array:
+
+```c
+float pos_x[100];
+float pos_y[100];
+int id[100];
+
+// Access: pos_x[i], pos_y[i]
+```
+
+**Detection**: Multiple parallel arrays with same index variable.
+
+### Example: FX Queue (SoA)
+
+```c
+// Base: 0x004912b8
+float fx_queue_pos_x[0x80];   // +0x00
+float fx_queue_pos_y[0x80];   // +0x200
+float fx_queue_color_r[0x80]; // +0x400
+
+// Usage:
+for (int i = 0; i < fx_count; i++) {
+    draw(fx_queue_pos_x[i], fx_queue_pos_y[i], fx_queue_color_r[i]);
+}
+```
+
+**Stride between arrays**: `0x80 * sizeof(float) = 0x200`
+
+## Special Cases
+
+### Negative Offsets
+
+Some structs have fields before the "base" address:
+
+```c
+// Player pool base: 0x004908d4 (player_health)
+// But position fields are at negative offsets:
+float pos_x = *(float*)(0x004908d4 - 0x10 + player_idx * 0x360);
+```
+
+**Why**: Base address points to a frequently-used field (health), not the struct start.
+
+**Solution**: Document both "official base" and "struct start":
+
+```c
+typedef struct {
+    // Struct start: player_health - 0x14
+    float death_timer;  // -0x14 from player_health
+    float pos_x;        // -0x10
+    float pos_y;        // -0x0c
+    // ...
+    float health;       // +0x00 (player_health base)
+} player_t;
+```
+
+### Embedded Sub-Structs
+
+```c
+typedef struct {
+    float health;
+    // ... other fields
+    // Input bindings at +0x308
+    int move_forward;   // +0x308
+    int move_backward;  // +0x30c
+    int turn_left;      // +0x310
+    // ... 13 keybinds total
+} player_t;
+```
+
+**Can model as**:
+
+```c
+typedef struct {
+    int move_forward;
+    int move_backward;
+    int turn_left;
+    // ...
+} input_bindings_t;
+
+typedef struct {
+    float health;
+    // ...
+    input_bindings_t input;  // +0x308
+} player_t;
+```
+
+### Union Fields
+
+Same offset used for different purposes:
+
+```c
+// Offset +0x30: damage_pool for pierce projectiles, unused for others
+typedef struct {
+    // ...
+    union {
+        float damage_pool;   // Multi-hit budget
+        float reserved;      // Unused placeholder
+    };
+} projectile_t;
+```
+
+**Detection**: Conditional writes/reads based on type ID.
+
+## Cross-Validation Techniques
+
+### 1. Size Calculation
+
+Count known fields and check against stride:
+
+```c
+// Known fields: 16 floats + 2 ints = 16*4 + 2*4 = 72 bytes
+// Stride: 0x40 = 64 bytes
+// Missing: 64 - 72 = ERROR (overrun)
+```
+
+**Fix**: Some fields are smaller (bytes, padding) or we missed offsets.
+
+### 2. Boundary Checks
+
+Confirm struct doesn't overlap next pool:
+
+```text
+projectile_pool: 0x004926b8
+  + 0x60 entries * 0x40 = 0x1800
+  End: 0x00493eb8
+
+particle_pool: 0x00493eb8 (immediately after)
+```
+
+No gap = correct sizing.
+
+### 3. Runtime Dumps
+
+Capture full entry as hex:
+
+```javascript
+const entry = pool.add(idx * stride);
+const data = entry.readByteArray(stride);
+console.log(hexdump(data, {offset: 0, length: stride}));
+```
+
+Compare to struct definition field-by-field.
+
+## Documentation Format
+
+Use consistent struct documentation:
+
+```markdown
+## Projectile Struct
+
+**Base**: `projectile_pool` (`0x004926b8`)  
+**Entry size**: `0x40` bytes  
+**Pool size**: `0x60` entries
+
+| Offset | Field | Type | Evidence |
+|--------|-------|------|----------|
+| 0x00 | active | u8 | Set to 1 on spawn; cleared when life_timer <= 0 |
+| 0x04 | angle | float | Spawn parameter; used for cos/sin movement |
+| 0x08 | pos_x | float | Updated per tick; used in collision tests |
+| 0x0c | pos_y | float | Updated per tick; used in collision tests |
+| 0x24 | life_timer | float | Decremented by delta_time; despawn when <= 0 |
+| 0x3c | owner_id | int | Player index (-100..-103); skip in hit tests |
+```
+
+## Automated Tools
+
+### Ghidra Scripts
+
+**ExportDataMap.java** - Extract struct definitions to JSON:
+
+```json
+{
+  "projectile_pool": {
+    "address": "0x004926b8",
+    "entry_size": 64,
+    "count": 96,
+    "fields": [
+      {"offset": 0, "name": "active", "type": "u8"},
+      {"offset": 4, "name": "angle", "type": "float"}
+    ]
+  }
+}
+```
+
+### Frida Helpers
+
+**Pool dumper** (`scripts/frida/dump_pool.js`):
+
+```javascript
+function dumpPool(base, stride, count, offsets) {
+  for (let i = 0; i < count; i++) {
+    const entry = ptr(base).add(i * stride);
+    if (entry.readU8() === 0) continue;  // Skip inactive
+    
+    console.log(`Entry ${i}:`);
+    for (const [name, offset, type] of offsets) {
+      const value = type === 'float' ? entry.add(offset).readFloat()
+                  : type === 'int' ? entry.add(offset).readS32()
+                  : entry.add(offset).readU8();
+      console.log(`  ${name}: ${value}`);
+    }
+  }
+}
+
+dumpPool("0x004926b8", 0x40, 0x60, [
+  ["active", 0x00, "u8"],
+  ["pos_x", 0x08, "float"],
+  ["pos_y", 0x0c, "float"],
+  ["life_timer", 0x24, "float"]
+]);
+```
+
+## Example: Recovering Weapon Table
+
+Let's walk through recovering the weapon data table.
+
+### Step 1: Find References
+
+Search for weapon-related functions:
+
+```c
+// weapon_assign_player @ 0x00412e40
+void weapon_assign_player(int player_idx, int weapon_id) {
+    int* table_entry = (int*)(0x004d7a00 + weapon_id * 0x48);
+    // ... copies fields to player state
+}
+```
+
+**Observation**: Base `0x004d7a00`, stride `0x48` (72 bytes).
+
+### Step 2: Track Field Usage
+
+```c
+// Different functions access different offsets:
+int ammo = *(int*)(weapon_base + id * 0x48 + 0x00);
+float damage = *(float*)(weapon_base + id * 0x48 + 0x10);
+int fire_rate = *(int*)(weapon_base + id * 0x48 + 0x1c);
+```
+
+### Step 3: Runtime Capture
+
+```javascript
+Interceptor.attach(ptr("0x00412e40"), {
+  onEnter: function(args) {
+    const weapon_id = args[1].toInt32();
+    const base = ptr("0x004d7a00").add(weapon_id * 0x48);
+    
+    console.log(`Weapon ${weapon_id}:`);
+    console.log(`  ammo: ${base.add(0x00).readS32()}`);
+    console.log(`  damage: ${base.add(0x10).readFloat()}`);
+    console.log(`  fire_rate: ${base.add(0x1c).readS32()}`);
+  }
+});
+```
+
+**Output**:
+```
+Weapon 1 (Pistol):
+  ammo: 12
+  damage: 10.0
+  fire_rate: 8
+```
+
+### Step 4: Document
+
+```c
+typedef struct {
+    int ammo;           // +0x00
+    // ...
+    float damage;       // +0x10
+    // ...
+    int fire_rate;      // +0x1c
+    // ... total 0x48 bytes
+} weapon_entry_t;
+
+weapon_entry_t weapon_table[54];  // 54 weapons
+```
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Game State" href="/reverse-engineering/structs/game-state">
+    Global game state structures
+  </Card>
+  <Card title="Entity Pools" href="/reverse-engineering/structs/entities">
+    Creature, projectile, and effect pools
+  </Card>
+  <Card title="Frida Capture" href="/reverse-engineering/runtime/frida-capture">
+    Runtime validation of struct layouts
+  </Card>
+</CardGroup>

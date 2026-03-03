@@ -1,0 +1,383 @@
+---
+title: Replay Module
+description: Deterministic replay recording, verification, and playback
+---
+
+The replay system records gameplay inputs, verifies deterministic execution, and supports headless replay for score validation.
+
+## Architecture
+
+**Location:** `src/crimson/replay/`
+
+- **`types.py`** — Replay file format (`.crd`)
+- **`codec.py`** — Encoding/decoding
+- **`recorder.py`** — Recording during gameplay
+- **`checkpoints.py`** — State checkpoint system
+- **`input_codec.py`** — Input frame encoding
+
+## Replay File Format
+
+Replays use `.crd` extension (Crimsonland Replay Data):
+
+```python src/crimson/replay/types.py
+class Replay(msgspec.Struct):
+    version: int                    # Format version
+    schema_version: int             # Schema version
+    
+    # Settings
+    game_mode: GameMode
+    player_count: int
+    seed: int
+    preserve_bugs: bool
+    
+    # Metadata
+    recorded_at: str               # ISO timestamp
+    rewrite_version: str           # Git commit SHA
+    
+    # Claimed stats (from header)
+    claimed_ticks: int
+    claimed_score: int
+    claimed_kills: int
+    
+    # Input frames
+    input_frames: list[bytes]      # Encoded inputs
+    
+    # Optional checkpoints
+    checkpoints: list[ReplayCheckpoint] | None
+```
+
+## Recording
+
+Replays record inputs each frame:
+
+```python src/crimson/replay/recorder.py
+class ReplayRecorder:
+    """Records gameplay inputs for replay."""
+    
+    def __init__(
+        self,
+        *,
+        game_mode: GameMode,
+        player_count: int,
+        seed: int,
+    ):
+        self.game_mode = game_mode
+        self.player_count = player_count
+        self.seed = seed
+        self.frames: list[bytes] = []
+    
+    def record_frame(
+        self,
+        inputs: list[PlayerInput],
+    ) -> None:
+        """Record one frame of inputs."""
+        frame = InputFrame.from_list(
+            inputs,
+            player_count=self.player_count,
+        )
+        encoded = encode_input_frame(frame)
+        self.frames.append(encoded)
+    
+    def finalize(
+        self,
+        *,
+        final_score: int,
+        final_kills: int,
+    ) -> Replay:
+        """Finalize replay with stats."""
+        return Replay(
+            version=REPLAY_VERSION,
+            schema_version=REPLAY_SCHEMA_VERSION,
+            game_mode=self.game_mode,
+            player_count=self.player_count,
+            seed=self.seed,
+            claimed_ticks=len(self.frames),
+            claimed_score=final_score,
+            claimed_kills=final_kills,
+            input_frames=self.frames,
+            recorded_at=datetime.now().isoformat(),
+            rewrite_version=get_git_commit(),
+        )
+```
+
+## Input Encoding
+
+Inputs are compactly encoded:
+
+```python src/crimson/replay/input_codec.py
+def encode_input_frame(frame: InputFrame) -> bytes:
+    """Encode input frame to bytes."""
+    buf = bytearray()
+    
+    for input in frame.inputs:
+        # Pack booleans into bit field
+        flags = 0
+        if input.up: flags |= 0x01
+        if input.down: flags |= 0x02
+        if input.left: flags |= 0x04
+        if input.right: flags |= 0x08
+        if input.fire: flags |= 0x10
+        if input.reload: flags |= 0x20
+        buf.append(flags)
+        
+        # Pack aim position (float32)
+        buf.extend(struct.pack('<ff', input.aim_x, input.aim_y))
+    
+    return bytes(buf)
+
+def decode_input_frame(data: bytes) -> InputFrame:
+    """Decode input frame from bytes."""
+    # Reverse of encode_input_frame
+    ...
+```
+
+## Replay Verification
+
+Headless verification validates replay claims:
+
+```bash
+uv run crimson replay verify replay.crd
+```
+
+```python src/crimson/sim/driver/replay_runner.py
+def run_replay(replay: Replay) -> ReplayRunResult:
+    """Run replay headlessly and return stats."""
+    
+    # Build world from replay settings
+    world = WorldState.build(
+        world_size=1024.0,
+        demo_mode_active=False,
+        hardcore=False,
+        difficulty_level=0,
+        preserve_bugs=replay.preserve_bugs,
+    )
+    
+    # Seed RNG
+    world.state.rng = CrtRand(seed=replay.seed)
+    
+    # Build session
+    session = build_session_for_mode(
+        replay.game_mode,
+        world,
+    )
+    
+    # Decode inputs
+    input_frames = [
+        decode_input_frame(frame)
+        for frame in replay.input_frames
+    ]
+    
+    # Simulate
+    for tick_index, input_frame in enumerate(input_frames):
+        result = session.step_tick(
+            dt=FIXED_DT,
+            inputs=input_frame.as_list(),
+        )
+    
+    # Return final stats
+    return ReplayRunResult(
+        ticks=len(input_frames),
+        elapsed_ms=session.elapsed_ms,
+        score=world.state.score,
+        kills=world.state.kill_count,
+        rng_state=world.state.rng.state,
+    )
+```
+
+### Verification Exit Codes
+
+- `0` — Success (stats match claims)
+- `1` — Error (replay corrupt or failed to run)
+- `3` — Mismatch (stats don't match claims)
+
+## Checkpoint System
+
+Checkpoints snapshot state for differential testing:
+
+```python src/crimson/replay/checkpoints.py
+class ReplayCheckpoint(msgspec.Struct):
+    tick_index: int
+    state_hash: str              # SHA256 of state
+    command_hash: str            # Presentation command hash
+    rng_state: int               # RNG state
+    
+    # Detailed state for diagnostics
+    player_pos: list[tuple[float, float]]
+    player_health: list[float]
+    score: int
+    level: int
+```
+
+### Checkpoint Verification
+
+```bash
+uv run crimson replay verify-checkpoints replay.crd
+```
+
+Compares:
+
+1. **Command hash** — Fast fail on presentation divergence
+2. **State hash** — Detects simulation divergence
+3. **Field-by-field** — Diagnostic detail on mismatch
+
+## Replay Timeline
+
+Extract event timeline for analysis:
+
+```bash
+uv run crimson replay info replay.crd --format json
+```
+
+```python src/crimson/sim/driver/replay_info.py
+def extract_replay_timeline(
+    replay: Replay,
+) -> ReplayTimeline:
+    """Extract chronological event timeline."""
+    
+    events = []
+    
+    # Run replay
+    for tick_index, result in enumerate(replay_simulation(replay)):
+        # Bonus pickups
+        for pickup in result.events.pickups:
+            events.append(TimelineEvent(
+                tick_index=tick_index,
+                elapsed_ms=session.elapsed_ms,
+                kind="bonus_pickup",
+                data={"bonus_id": pickup.bonus_id},
+            ))
+        
+        # Level ups
+        if result.prev_level != result.curr_level:
+            events.append(TimelineEvent(
+                tick_index=tick_index,
+                kind="level_up",
+                data={"level": result.curr_level},
+            ))
+        
+        # ... more events
+    
+    return ReplayTimeline(
+        schema_version=1,
+        events=events,
+    )
+```
+
+## Replay Playback
+
+Visual replay playback:
+
+```bash
+uv run crimson replay play replay.crd
+```
+
+```python src/crimson/modes/replay_playback_mode.py
+class ReplayPlaybackMode:
+    """Replay viewer with visual playback."""
+    
+    def __init__(self, replay: Replay, world: GameWorld):
+        self.replay = replay
+        self.world = world
+        self.tick_index = 0
+        self.paused = False
+    
+    def update(self, dt: float) -> None:
+        if self.paused:
+            return
+        
+        # Get next input frame
+        if self.tick_index >= len(self.replay.input_frames):
+            return  # Replay finished
+        
+        input_frame = decode_input_frame(
+            self.replay.input_frames[self.tick_index]
+        )
+        
+        # Step simulation
+        result = self.session.step_tick(
+            dt=FIXED_DT,
+            inputs=input_frame.as_list(),
+        )
+        
+        # Apply presentation
+        self.world.apply_presentation(result)
+        
+        self.tick_index += 1
+```
+
+## Video Export
+
+Render replay to video:
+
+```bash
+uv run crimson replay render replay.crd --fps 60 --crf 14
+```
+
+```python src/crimson/cli/replay.py
+def replay_render(
+    replay_path: Path,
+    *,
+    fps: int = 60,
+    crf: int = 16,
+) -> None:
+    """Render replay to MP4 via ffmpeg."""
+    
+    # Start ffmpeg process
+    ffmpeg = subprocess.Popen([
+        'ffmpeg',
+        '-f', 'rawvideo',
+        '-pix_fmt', 'rgba',
+        '-s', f'{width}x{height}',
+        '-r', str(fps),
+        '-i', '-',
+        '-c:v', 'libx264',
+        '-crf', str(crf),
+        'output.mp4',
+    ], stdin=subprocess.PIPE)
+    
+    # Render frames offscreen
+    for frame in replay_frames(replay):
+        # Render to texture
+        render_frame(frame)
+        
+        # Capture pixels
+        pixels = rl.read_screen_pixels()
+        
+        # Write to ffmpeg
+        ffmpeg.stdin.write(pixels)
+    
+    ffmpeg.stdin.close()
+    ffmpeg.wait()
+```
+
+## Differential Testing
+
+Compare rewrite vs original:
+
+```bash
+# Capture from original exe
+uv run scripts/frida/gameplay_diff_capture_host.py
+
+# Record rewrite trace
+uv run crimson dbg record replay.crd --impl python
+
+# Compare
+uv run crimson dbg diff original.cdt rewrite.cdt
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    How replays stay deterministic
+  </Card>
+  <Card title="Float32 Parity" icon="calculator" href="/rewrite/parity/float-policy">
+    Why float precision matters
+  </Card>
+  <Card title="Parity Status" icon="check" href="/rewrite/parity/status">
+    Current verification state
+  </Card>
+  <Card title="Crimson Module" icon="gamepad" href="/rewrite/modules/crimson">
+    Game logic overview
+  </Card>
+</CardGroup>

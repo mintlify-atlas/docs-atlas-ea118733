@@ -1,0 +1,194 @@
+---
+title: Install from PyPI
+description: Install Crimsonland from PyPI using uvx or pip
+---
+
+Install the latest stable release of Crimsonland from PyPI.
+
+## Using uvx (recommended)
+
+The recommended way to run Crimsonland is using `uvx`, which handles dependencies automatically without polluting your global Python environment.
+
+<Steps>
+  <Step title="Install uv">
+    If you haven't already, install [uv](https://docs.astral.sh/uv/getting-started/installation/):
+    
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+  </Step>
+  
+  <Step title="Run Crimsonland">
+    ```bash
+    uvx crimsonland@latest
+    ```
+    
+    This automatically:
+    - Downloads and installs Crimsonland and its dependencies in an isolated environment
+    - Runs the game
+    - Keeps your system Python clean
+  </Step>
+</Steps>
+
+<Note>
+With `uvx`, you don't need to install Crimsonland globally. Each run uses an isolated environment.
+</Note>
+
+## Using pip
+
+If you prefer traditional pip installation:
+
+<Steps>
+  <Step title="Create a virtual environment (recommended)">
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+    ```
+  </Step>
+  
+  <Step title="Install Crimsonland">
+    ```bash
+    pip install crimsonland
+    ```
+  </Step>
+  
+  <Step title="Run the game">
+    ```bash
+    crimsonland
+    # or
+    crimson
+    ```
+    
+    Both commands are aliases for the same CLI.
+  </Step>
+</Steps>
+
+## Version pinning
+
+To install a specific version:
+
+<CodeGroup>
+  ```bash uvx
+  uvx crimsonland@0.7.0
+  ```
+  
+  ```bash pip
+  pip install crimsonland==0.7.0
+  ```
+</CodeGroup>
+
+## Optional dependencies
+
+To install with chart rendering support (used by some analysis tools):
+
+<CodeGroup>
+  ```bash pip
+  pip install crimsonland[charts]
+  ```
+  
+  ```bash uv
+  uv pip install crimsonland[charts]
+  ```
+</CodeGroup>
+
+This installs additional dependencies:
+- `altair` for data visualization
+- `vl-convert-python` for chart rendering
+
+## Verification
+
+Verify the installation:
+
+```bash
+crimson --help
+```
+
+You should see the CLI help output with available commands.
+
+## Platform-specific notes
+
+### Linux (Wayland)
+
+<Warning>
+Current PyPI raylib wheels are X11-oriented on x86_64. Wayland users may need `xwayland` + `libX11`.
+</Warning>
+
+Install X11 compatibility:
+
+```bash
+# Ubuntu/Debian
+sudo apt install xwayland libx11-6
+
+# Fedora
+sudo dnf install xorg-x11-server-Xwayland libX11
+
+# Arch
+sudo pacman -S xorg-xwayland libx11
+```
+
+See [electronstudio/raylib-python-cffi#199](https://github.com/electronstudio/raylib-python-cffi/pull/199) for details.
+
+## Upgrading
+
+To upgrade to the latest version:
+
+<CodeGroup>
+  ```bash uvx
+  # uvx always uses latest by default
+  uvx crimsonland@latest
+  ```
+  
+  ```bash pip
+  pip install --upgrade crimsonland
+  ```
+</CodeGroup>
+
+## Uninstalling
+
+<CodeGroup>
+  ```bash uvx
+  # uvx doesn't install globally, but you can clear its cache
+  uv cache clean
+  ```
+  
+  ```bash pip
+  pip uninstall crimsonland
+  ```
+</CodeGroup>
+
+<Note>
+Uninstalling the package does not remove your runtime files (saves, config, replays). See [Runtime configuration](/installation/runtime-configuration) to locate these files.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Runtime configuration"
+    icon="gear"
+    href="/installation/runtime-configuration"
+  >
+    Customize where saves, config, and replays are stored
+  </Card>
+  <Card
+    title="CLI reference"
+    icon="terminal"
+    href="/cli/overview"
+  >
+    Learn about all available commands
+  </Card>
+  <Card
+    title="Game modes"
+    icon="gamepad"
+    href="/gameplay/modes"
+  >
+    Explore Survival, Rush, Quests, and more
+  </Card>
+  <Card
+    title="Assets setup"
+    icon="folder"
+    href="/advanced/assets"
+  >
+    Configure custom asset directories
+  </Card>
+</CardGroup>

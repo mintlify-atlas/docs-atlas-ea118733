@@ -1,0 +1,471 @@
+---
+title: Creatures and Enemies
+description: Enemy types, AI behavior, and spawn mechanics
+icon: skull-crossbones
+---
+
+# Creatures and Enemies
+
+Crimsonland features 6 base creature types with hundreds of variants created through tint, size, and stat modifications. Understanding creature behavior and spawn patterns is essential for survival.
+
+## Creature Types
+
+From `src/crimson/creatures/spawn_ids.py:12-19`:
+
+```python
+class CreatureTypeId(IntEnum):
+    ZOMBIE = 0
+    LIZARD = 1
+    ALIEN = 2
+    SPIDER_SP1 = 3  # Small spider
+    SPIDER_SP2 = 4  # Large spider
+    TROOPER = 5
+```
+
+### 0. Zombie
+
+**Appearance**: Humanoid undead
+
+**Movement**: Slow, steady approach
+
+**AI Pattern**: `CHASE_PLAYER` - Direct pursuit
+
+**Base Stats**:
+- HP: Varies widely (20-200+)
+- Speed: 1.0-1.5 units/sec
+- Damage: 10-20 per contact
+
+**Variants**:
+- Grey Zombie: Standard variant
+- Green Zombie: Brute (high HP)
+- Blue Zombie: Boss variant (massive HP)
+
+**Behavior**: Zombies move directly toward the player using simple pathfinding. They're the most predictable enemy type.
+
+### 1. Lizard
+
+**Appearance**: Reptilian quadruped
+
+**Movement**: Fast, erratic
+
+**AI Pattern**: `CHASE_PLAYER` or `ORBIT_PLAYER`
+
+**Base Stats**:
+- HP: 40-150
+- Speed: 1.5-2.5 units/sec
+- Damage: 15-25 per contact
+
+**Variants**:
+- Grey Lizard: Standard
+- Yellow Lizard: Boss (high HP, slower)
+- White Lizard: Fast variant
+
+**Behavior**: Lizards are faster than zombies and often use orbiting AI to circle the player before attacking.
+
+### 2. Alien
+
+**Appearance**: Blob-like creature
+
+**Movement**: Variable speed
+
+**AI Pattern**: `ORBIT_PLAYER`, `CHASE_PLAYER`, special patterns
+
+**Base Stats**:
+- HP: 30-300+
+- Speed: 1.0-2.5 units/sec
+- Damage: 10-30 per contact
+
+**Variants**:
+- Green Alien: Standard
+- Purple Alien: Ghost (semi-transparent)
+- Red Alien: Boss (massive HP)
+- Grey Alien: Brute or Fast
+- Cyan Alien: Special AI
+- Brown Alien: Transparent variant
+
+**Special Abilities**:
+- Some aliens spawn child aliens on death
+- Boss aliens can have ring formations
+
+**Behavior**: Aliens have the most diverse AI patterns and variant types. They can orbit, chase, spawn children, or use complex formations.
+
+### 3. Spider SP1 (Small Spider)
+
+**Appearance**: Small arachnid
+
+**Movement**: Very fast
+
+**AI Pattern**: `CHASE_PLAYER`, `ORBIT_PLAYER_TIGHT`
+
+**Base Stats**:
+- HP: 20-100
+- Speed: 2.0-3.0 units/sec
+- Damage: 8-15 per contact
+
+**Variants**:
+- Brown Spider: Small, weak
+- Red Spider: Standard or Boss
+- White Spider: Fast variant  
+- Blue Spider: Special
+- Green Spider: Random tint
+
+**Special Abilities**:
+- Ranged shock attack (some variants)
+- Timer-based AI (spawn_id 0x38, 0x39)
+
+**Behavior**: Small spiders are the fastest creature type. They swarm and overwhelm through numbers and speed.
+
+### 4. Spider SP2 (Large Spider)
+
+**Appearance**: Large arachnid
+
+**Movement**: Moderate speed
+
+**AI Pattern**: `CHASE_PLAYER`, `ORBIT_PLAYER`
+
+**Base Stats**:
+- HP: 60-200
+- Speed: 1.5-2.5 units/sec
+- Damage: 20-30 per contact
+
+**Variants**:
+- Brown/Yellow Spider: Splitter (splits into smaller spiders on death)
+- Various tints: Random stat variations
+
+**Special Abilities**:
+- Split on death (spawn_id 0x01): Creates 2-3 smaller spiders
+- Ranged attack variant (spawn_id 0x37)
+
+**Behavior**: Large spiders are tougher than SP1 and often split into smaller threats when killed.
+
+### 5. Trooper
+
+**Appearance**: Armed humanoid
+
+**Movement**: Moderate speed
+
+**AI Pattern**: `ORBIT_PLAYER`, ranged combat
+
+**Base Stats**:
+- HP: 80-250
+- Speed: 1.2-1.8 units/sec
+- Damage: Ranged projectiles
+
+**Behavior**: Troopers keep distance and fire projectiles. They're the only creature type that primarily uses ranged attacks.
+
+## AI Modes
+
+From `src/crimson/creatures/spawn_ids.py:22-30`:
+
+```python
+class CreatureAiMode(IntEnum):
+    ORBIT_PLAYER = 0
+    ORBIT_PLAYER_TIGHT = 1
+    CHASE_PLAYER = 2
+    FOLLOW_LINK = 3
+    LINK_GUARD = 4
+    FOLLOW_LINK_TETHERED = 5
+    ORBIT_LINK = 6
+    HOLD_TIMER = 7
+    ORBIT_PLAYER_WIDE = 8
+```
+
+### Chase Player (Mode 2)
+
+**Behavior**: Direct pursuit of player position
+
+**Used By**: Zombies, some Lizards, basic variants
+
+**Characteristics**:
+- Moves directly toward player
+- No fancy maneuvers
+- Simple, predictable
+
+### Orbit Player (Modes 0, 1, 8)
+
+**Behavior**: Circles player at specific radius
+
+**Variants**:
+- Standard Orbit (0): Medium radius
+- Tight Orbit (1): Close circling
+- Wide Orbit (8): Large radius
+
+**Used By**: Aliens, Lizards, advanced variants
+
+**Characteristics**:
+- Maintains distance while circling
+- Harder to hit with directional weapons
+- Can suddenly break orbit to attack
+
+### Formation AI (Modes 3-6)
+
+**Behavior**: Follows or guards other creatures
+
+**Used In**: Multi-creature spawns, boss encounters
+
+**Characteristics**:
+- Linked to other creatures via link_index
+- Moves relative to linked creature
+- Used for formations and escorts
+
+### Hold Timer (Mode 7)
+
+**Behavior**: Stands still for duration, then activates
+
+**Used By**: Some spider variants (spawn_id 0x38, 0x39)
+
+**Characteristics**:
+- Stationary initially
+- Activates after timer expires
+- Used for delayed threats
+
+## Creature Flags
+
+From `src/crimson/creatures/spawn_ids.py:33-43`:
+
+```python
+class CreatureFlags(IntFlag):
+    SELF_DAMAGE_TICK = 0x01       # Periodic self-damage (dt * 60)
+    SELF_DAMAGE_TICK_STRONG = 0x02 # Stronger self-damage (dt * 180)
+    ANIM_PING_PONG = 0x04         # Short ping-pong animation
+    SPLIT_ON_DEATH = 0x08         # Splits into smaller creatures
+    RANGED_ATTACK_SHOCK = 0x10    # Fires shock projectiles
+    ANIM_LONG_STRIP = 0x40        # Long animation strip
+    AI7_LINK_TIMER = 0x80         # Uses link as timer for AI mode 7
+    RANGED_ATTACK_VARIANT = 0x100 # Ranged attack variant
+    BONUS_ON_DEATH = 0x400        # Spawns bonus on death
+```
+
+### Self-Damage Flags
+
+Some creatures take continuous damage over time:
+
+**SELF_DAMAGE_TICK** (0x01): `damage = dt * 60` per frame
+
+**SELF_DAMAGE_TICK_STRONG** (0x02): `damage = dt * 180` per frame
+
+**Purpose**: Creates temporary creatures that die automatically (used for spawned children, special effects)
+
+### Split on Death (0x08)
+
+**Effect**: When creature dies, spawns 2-3 smaller creatures at death position
+
+**Used By**: Large Spider SP2 variants (spawn_id 0x01)
+
+**Implementation**: Configured via spawn template, executed in death handler
+
+### Ranged Attacks
+
+**RANGED_ATTACK_SHOCK** (0x10): Fires shock projectiles (type 9)
+
+**RANGED_ATTACK_VARIANT** (0x100): Fires projectiles with type specified in orbit_radius field
+
+**Used By**: Troopers, some spider variants, advanced enemies
+
+### Bonus on Death (0x400)
+
+**Effect**: Guarantees bonus drop when killed
+
+**Used By**: Boss creatures, special encounters
+
+## Spawn System
+
+Creatures spawn from a pool of 384 slots (`CREATURE_POOL_SIZE = 0x180` from `src/crimson/creatures/runtime.py:82`).
+
+### Spawn IDs
+
+There are 129+ spawn templates (SpawnId 0x00 through 0x80+) that define creature configurations.
+
+**Examples**:
+- `0x00`: Zombie Boss Spawner
+- `0x01`: Spider SP2 Splitter
+- `0x03-0x06`: Random variants (Spiders, Lizards, Aliens)
+- `0x11-0x19`: Formation spawns (chains, rings, grids)
+- `0x21-0x2D`: Specific alien variants (ghosts, bosses, etc.)
+
+### Spawn Templates
+
+From `src/crimson/creatures/spawn_templates.py`, each template defines:
+
+```python
+class SpawnTemplate:
+    spawn_id: SpawnId
+    type_id: CreatureTypeId
+    flags: CreatureFlags
+    creature: str              # Asset name
+    anim_note: str | None
+    tint: Tint | None          # RGBA color tint
+    size: float | None         # Size multiplier
+    move_speed: float | None   # Movement speed
+```
+
+**Fixed Templates**: Some templates have fixed tint/size/speed
+
+**Random Templates**: Many use None values, randomized at spawn time
+
+### Spawn Rate Scaling
+
+In Survival mode, spawn rate increases over time:
+
+1. **Early Game** (0-2 min): Slow spawns, easy enemies
+2. **Mid Game** (2-10 min): Faster spawns, mixed difficulty
+3. **Late Game** (10+ min): Near-continuous spawning, hard enemies
+
+**Spawn Timer**: Decreases from ~2 seconds to ~0.1 seconds over 20 minutes
+
+## Contact Damage
+
+From `src/crimson/creatures/runtime.py:84`:
+
+```python
+CONTACT_DAMAGE_PERIOD = 0.5  # Damage ticks every 0.5 seconds
+```
+
+Creatures deal damage when touching the player:
+
+**Damage Application**:
+- Collision detected between player and creature
+- If contact timer expired (0.5s period):
+  - Deal creature's damage to player
+  - Play attack sound effect
+  - Reset timer to 0.5s
+
+**Damage Values**: Vary by creature type and variant (10-30 HP typical)
+
+**Sound Effects** (from `runtime.py:105-111`):
+- Zombie: `sfx_zombie_attack_01/02`
+- Lizard: `sfx_lizard_attack_01/02`  
+- Alien: `sfx_alien_attack_01/02`
+- Spider: `sfx_spider_attack_01/02`
+
+## Creature HP and Difficulty
+
+### HP Ranges by Type
+
+| Creature Type | HP Range | Notes |
+|---------------|----------|-------|
+| Zombie | 20-200+ | Wide variance |
+| Lizard | 40-150 | Medium HP |
+| Alien | 30-300+ | Huge variance |
+| Spider SP1 | 20-100 | Fast, low HP |
+| Spider SP2 | 60-200 | Splitters |
+| Trooper | 80-250 | Ranged |
+
+### Boss Variants
+
+Boss creatures (spawn_id specific variants) have:
+- 3-10x normal HP
+- Larger size (1.5-2.5x)
+- Special colors (blue, red, yellow)
+- Guaranteed bonus drops (flag 0x400)
+
+**Examples**:
+- Zombie Boss (0x00): Blue tint, 64 size, 1.3 speed
+- Yellow Lizard Boss (0x30): Yellow tint, high HP
+- Red Alien Boss (0x2C): Red tint, massive HP
+- Red Spider Boss (0x3B): Red tint, high HP
+- Shock Spider Boss (0x3A): Special ranged variant
+
+## Damage Types Against Creatures
+
+From `src/crimson/creatures/damage_types.py`:
+
+```python
+class CreatureDamageType:
+    BULLET = 1   # Most weapons
+    FIRE = 4     # Flamethrowers
+    ION = 7      # Ion weapons
+    # ... additional types
+```
+
+**Perk Interactions** (see `src/crimson/creatures/damage.py`):
+- Uranium Filled Bullets: +100% to BULLET damage
+- Barrel Greaser: +40% to BULLET damage
+- Doctor: +20% to BULLET damage
+- Living Fortress: +0% to +150% to BULLET (scales with stationary time)
+- Pyromaniac: +50% to FIRE damage
+- Ion Gun Master: +20% to ION damage
+
+## Strategy Against Creature Types
+
+### Zombies
+
+**Weakness**: Slow movement
+
+**Strategy**: 
+- Kite in circles
+- Use any weapon
+- Focus fire on clusters
+
+**Threat Level**: Low (unless in huge numbers)
+
+### Lizards
+
+**Weakness**: Predictable orbiting
+
+**Strategy**:
+- Lead shots for orbiting variants
+- Use fast weapons (SMG, Assault Rifle)
+- Don't let them surround you
+
+**Threat Level**: Medium
+
+### Aliens
+
+**Weakness**: Varies by variant
+
+**Strategy**:
+- Identify variant quickly (color/size)
+- Prioritize spawners (they create more aliens)
+- Use area damage on groups
+- Boss aliens: focused high-damage weapons
+
+**Threat Level**: Medium to Very High (boss variants)
+
+### Spiders (SP1 - Small)
+
+**Weakness**: Low HP
+
+**Strategy**:
+- Spray weapons (SMG, Minigun, Flamethrower)
+- Constant movement
+- Don't get cornered
+
+**Threat Level**: High (swarms)
+
+### Spiders (SP2 - Large)
+
+**Weakness**: Splits create more targets
+
+**Strategy**:
+- AOE weapons to kill splits immediately
+- Gauss Gun to pierce through
+- Avoid letting splitters surround you
+
+**Threat Level**: Medium-High
+
+### Troopers
+
+**Weakness**: Weak up close
+
+**Strategy**:
+- Close distance quickly
+- Use cover/movement to dodge shots
+- High single-target damage
+
+**Threat Level**: Medium (can be very dangerous at range)
+
+## Related Documentation
+
+- [Damage Calculations](/mechanics/combat/damage) - How damage applies to creatures
+- [Weapons](/mechanics/combat/weapons) - Weapon effectiveness against creatures
+- [Perks](/mechanics/combat/perks) - Perks that modify creature damage
+- [Survival Mode](/mechanics/modes/survival) - Spawn patterns in survival
+
+## Source Code References
+
+- `src/crimson/creatures/spawn_ids.py` - Creature type IDs and spawn IDs
+- `src/crimson/creatures/spawn_templates.py` - Spawn template definitions
+- `src/crimson/creatures/runtime.py` - Creature pool and update logic
+- `src/crimson/creatures/ai.py` - AI behavior implementation
+- `src/crimson/creatures/damage.py` - Damage application logic

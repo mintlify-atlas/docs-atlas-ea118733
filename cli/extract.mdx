@@ -1,0 +1,211 @@
+---
+title: Extract Command
+description: Extract PAQ archives to filesystem tree
+---
+
+Extract `.paq` archive files into a browsable filesystem tree. Automatically converts proprietary formats (JAZ textures, TGA images) to standard PNG.
+
+## Usage
+
+```bash
+crimson extract <game_dir> <assets_dir>
+```
+
+## Arguments
+
+<ParamField path="game_dir" type="Path" required>
+  Source directory containing `.paq` files.
+  
+  Typically the installation directory of the original Crimsonland game.
+</ParamField>
+
+<ParamField path="assets_dir" type="Path" required>
+  Destination directory for extracted assets.
+  
+  Will be created if it doesn't exist. Each PAQ file becomes a subdirectory.
+</ParamField>
+
+## Behavior
+
+### Archive Discovery
+
+Recursively searches `game_dir` for all `.paq` files:
+
+```
+game_dir/
+├── crimson.paq
+├── music.paq
+└── sounds.paq
+```
+
+### Output Structure
+
+Each PAQ is extracted to a subdirectory named after the archive:
+
+```
+assets_dir/
+├── crimson/
+│   ├── gfx/
+│   │   ├── sprites/
+│   │   └── terrain/
+│   └── data/
+├── music/
+│   └── *.ogg
+└── sounds/
+    └── *.wav
+```
+
+### Format Conversions
+
+The extractor automatically converts proprietary formats:
+
+<ParamField path="JAZ textures" type=".jaz → .png">
+  Custom texture format with alpha channel.
+  
+  Converted to standard PNG with transparency preserved.
+</ParamField>
+
+<ParamField path="TGA images" type=".tga → .png">
+  Targa image format.
+  
+  Converted to PNG for broader compatibility.
+</ParamField>
+
+<ParamField path="Other files" type="passthrough">
+  All other file types are copied as-is:
+  - Audio files (.ogg, .wav)
+  - Data files (.dat, .txt)
+  - Configuration files
+</ParamField>
+
+## Examples
+
+### Extract Original Game Assets
+
+```bash
+crimson extract ~/Games/Crimsonland artifacts/assets
+```
+
+Output:
+```
+extracted 1247 files
+```
+
+### Extract from GOG Install
+
+```bash
+crimson extract ~/.wine/drive_c/GOG/Crimsonland ./assets
+```
+
+### Browse Extracted Sprites
+
+```bash
+crimson extract /path/to/game ./extracted
+ls -la ./extracted/crimson/gfx/sprites/
+```
+
+## Error Handling
+
+### No PAQ Files Found
+
+```bash
+crimson extract /wrong/path ./assets
+```
+
+Output:
+```
+no .paq files under /wrong/path
+```
+
+Exit code: `1`
+
+### Invalid Game Directory
+
+```bash
+crimson extract /nonexistent ./assets
+```
+
+Output:
+```
+game dir not found: /nonexistent
+```
+
+Exit code: `1`
+
+## Path Safety
+
+The extractor validates all archive entry names:
+
+- Rejects absolute paths
+- Rejects parent directory references (`..`)
+- Rejects path traversal attempts
+- Normalizes path separators
+
+This prevents malicious archives from writing outside the target directory.
+
+## Use Cases
+
+### Inspect Game Assets
+
+Extract to browse sprites, textures, and data files:
+
+```bash
+crimson extract ~/Games/Crimsonland ./inspect
+find ./inspect -name '*.png' | head
+```
+
+### Asset Modding
+
+Extract, modify, and use custom asset directory:
+
+```bash
+crimson extract ~/Games/Crimsonland ./custom_assets
+# Modify files in ./custom_assets
+crimson --assets-dir ./custom_assets
+```
+
+### Verify Asset Integrity
+
+Extract and compare checksums:
+
+```bash
+crimson extract ./game_v1 ./assets_v1
+crimson extract ./game_v2 ./assets_v2
+diff -r ./assets_v1 ./assets_v2
+```
+
+## PAQ Format
+
+The PAQ format is a simple archive structure:
+
+- Header with entry count
+- Table of contents (filenames + offsets)
+- Concatenated file data
+
+See `grim.paq` module for implementation details.
+
+## JAZ Format
+
+JAZ is a custom texture format used by the original game:
+
+- Paletted image data
+- Embedded alpha channel
+- Custom compression
+
+The extractor automatically decodes JAZ to PNG with full alpha channel support.
+
+See `grim.jaz` module for decoder implementation.
+
+## Performance
+
+Extraction is fast but may take time for large archives:
+
+- ~1200 files extracted in under 5 seconds
+- JAZ→PNG conversion is CPU-bound
+- Disk I/O is the primary bottleneck
+
+## See Also
+
+- [Run Command](/cli/run) — Launch game with custom assets
+- [PAQ Archives](/reverse-engineering/formats/paq-archives) — PAQ archive specification
+- [JAZ Textures](/reverse-engineering/formats/jaz-textures) — Texture format details

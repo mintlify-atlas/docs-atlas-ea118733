@@ -1,0 +1,325 @@
+---
+title: PAQ Archive Format
+description: Simple concatenated archive format used by Crimsonland for game assets
+---
+
+PAQ is the custom archive format used by Crimsonland to package game assets. It's a simple flat container with no central directory or compression.
+
+## Format Structure
+
+PAQ files consist of a 4-byte magic header followed by a sequence of entries:
+
+```
++----------------+
+| Magic (4 bytes)|
++----------------+
+| Entry 1        |
+|  - Name        |
+|  - Size        |
+|  - Payload     |
++----------------+
+| Entry 2        |
+|  ...           |
++----------------+
+| Entry N        |
++----------------+
+| EOF            |
++----------------+
+```
+
+## Binary Layout
+
+<CodeGroup>
+```text Structure
+Offset  Size  Type      Description
+------  ----  ----      -----------
+0x00    4     char[4]   Magic: "paq\0"
+
+Then repeat until EOF:
+  N     var   cstring   Entry name (NUL-terminated UTF-8 path)
+  N+L   4     u32       Payload size (little-endian)
+  N+L+4 S     bytes     Payload data (length = size)
+```
+
+```c C Definition
+#define PAQ_MAGIC "paq\0"
+
+typedef struct {
+    char* name;          // NUL-terminated path
+    uint32_t size;       // Payload length
+    uint8_t* payload;    // Raw file bytes
+} paq_entry_t;
+
+typedef struct {
+    char magic[4];       // "paq\0"
+    paq_entry_t entries[];  // Variable count, read until EOF
+} paq_archive_t;
+```
+</CodeGroup>
+
+## Field Details
+
+### Magic Header
+
+**Value**: `"paq\0"` (ASCII 'p', 'a', 'q', NUL terminator)  
+**Hex**: `70 61 71 00`
+
+Used to identify PAQ files and distinguish from other formats.
+
+### Entry Name
+
+**Type**: C-string (NUL-terminated)  
+**Encoding**: UTF-8  
+**Content**: Relative file path
+
+**Examples**:
+```
+"game\\ui\\panel.png"
+"sounds\\shoot.wav"
+"data\\weapons.txt"
+```
+
+**Notes**:
+- Original files use Windows-style backslashes (`\`)
+- Paths are relative (no leading slash or drive letter)
+- Decoders should normalize separators and reject `..` traversal
+
+### Payload Size
+
+**Type**: `uint32_t` (4 bytes)  
+**Endianness**: Little-endian  
+**Range**: 0 to 4GB
+
+Specifies the exact byte length of the following payload.
+
+### Payload
+
+**Type**: Raw bytes  
+**Length**: Specified by size field
+
+The complete file contents, stored as-is with no compression or encryption.
+
+## Example Entry
+
+Hex dump of a single entry:
+
+```
+Offset  Hex                                           ASCII
+------  ------------------------------------------   -----
+0x000   70 61 71 00                                  paq.
+0x004   67 61 6d 65 5c 75 69 5c 70 61 6e 65 6c 2e   game\ui\panel.
+        70 6e 67 00                                  png.
+0x017   2a 04 00 00                                  *...
+0x01b   89 50 4e 47 0d 0a 1a 0a ...                 .PNG....
+        (1066 bytes of PNG data)
+```
+
+**Parsing**:
+1. Magic: `paq\0` ✓
+2. Name: `"game\ui\panel.png"` (17 bytes including NUL)
+3. Size: `0x0000042a` = 1066 bytes
+4. Payload: 1066 bytes of PNG image data
+5. Next entry starts at offset `0x01b + 1066 = 0x441`
+
+## Python Decoder
+
+The reference decoder is in `src/grim/paq.py`:
+
+```python
+from construct import Bytes, Const, CString, GreedyRange, Int32ul, Struct
+
+MAGIC = b"paq\x00"
+
+PAQ_ENTRY = Struct(
+    "name" / CString("utf8"),
+    "size" / Int32ul,
+    "payload" / Bytes(lambda ctx: ctx.size),
+)
+
+PAQ = Struct(
+    "magic" / Const(MAGIC),
+    "entries" / GreedyRange(PAQ_ENTRY),
+)
+
+def iter_entries(source: Path) -> Iterator[tuple[str, bytes]]:
+    """Iterate over (name, payload) pairs."""
+    data = Path(source).read_bytes()
+    parsed = PAQ.parse(data)
+    for entry in parsed.entries:
+        yield entry.name, entry.payload
+```
+
+### Usage
+
+**Extract all entries**:
+```python
+from grim.paq import iter_entries
+
+for name, data in iter_entries("crimson.paq"):
+    output_path = Path("extracted") / name.replace("\\", "/")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(data)
+```
+
+**Read specific file**:
+```python
+def read_file(paq_path: Path, target_name: str) -> bytes | None:
+    for name, data in iter_entries(paq_path):
+        if name == target_name:
+            return data
+    return None
+
+panel_png = read_file(Path("ui.paq"), "game\\ui\\panel.png")
+```
+
+## CLI Tool
+
+The rewrite includes an extraction CLI:
+
+```bash
+# Extract all PAQ archives from game directory
+uv run crimson extract /path/to/game_dir artifacts/assets
+
+# Extracts:
+# - crimson.paq      -> artifacts/assets/crimson/
+# - ui.paq           -> artifacts/assets/ui/
+# - sounds.paq       -> artifacts/assets/sounds/
+# - music.paq        -> artifacts/assets/music/
+```
+
+**Automatic conversions**:
+- `.jaz` files → `.png` (decoded with alpha)
+- Path separators normalized to `/`
+- Directory structure preserved
+
+## Known PAQ Files
+
+<Accordion title="crimson.paq">
+  **Size**: ~15 MB  
+  **Contents**: Core game assets
+  
+  - `game/` - Textures and sprites
+  - `game/projs.png` - Projectile atlas
+  - `game/bodies*.jaz` - Creature sprites
+  - `game/blood*.jaz` - Blood effects
+  - `game/particles.png` - Particle atlas
+</Accordion>
+
+<Accordion title="ui.paq">
+  **Size**: ~2 MB  
+  **Contents**: UI elements
+  
+  - `ui/panel*.png` - Menu panels
+  - `ui/buttons/*.png` - Button graphics
+  - `ui/icons/*.png` - Weapon/perk icons
+</Accordion>
+
+<Accordion title="sounds.paq">
+  **Size**: ~8 MB  
+  **Contents**: Sound effects (WAV)
+  
+  - `sounds/shoot_*.wav` - Weapon sounds
+  - `sounds/hit_*.wav` - Impact sounds
+  - `sounds/creature_*.wav` - Enemy sounds
+</Accordion>
+
+<Accordion title="music.paq">
+  **Size**: ~30 MB  
+  **Contents**: Music tracks (OGG Vorbis)
+  
+  - `music/menu.ogg` - Menu theme
+  - `music/gameplay_*.ogg` - Combat tracks
+</Accordion>
+
+## Format Properties
+
+<CardGroup cols={2}>
+  <Card title="Pros" icon="check">
+    - Simple to parse (no compression, no index)
+    - Sequential access is fast
+    - Easy to append new entries
+    - No external dependencies
+  </Card>
+  <Card title="Cons" icon="xmark">
+    - No compression (large files)
+    - No random access (must scan from start)
+    - No checksums or integrity verification
+    - No metadata (timestamps, permissions)
+  </Card>
+</CardGroup>
+
+## Security Considerations
+
+### Path Traversal
+
+**Risk**: Malicious entry names like `..\..\..\windows\system32\evil.dll` could write outside the extraction directory.
+
+**Mitigation**:
+```python
+def safe_extract(name: str, base_dir: Path) -> Path:
+    # Normalize separators
+    name = name.replace("\\", "/")
+    
+    # Reject dangerous patterns
+    if ".." in name or name.startswith("/"):
+        raise ValueError(f"Invalid entry name: {name}")
+    
+    # Resolve and check it's under base_dir
+    output_path = (base_dir / name).resolve()
+    if not output_path.is_relative_to(base_dir):
+        raise ValueError(f"Path escapes base directory: {name}")
+    
+    return output_path
+```
+
+### Size Bombs
+
+**Risk**: Entry with size field `0xffffffff` (4GB) could exhaust memory.
+
+**Mitigation**:
+```python
+MAX_ENTRY_SIZE = 100 * 1024 * 1024  # 100 MB
+
+if entry.size > MAX_ENTRY_SIZE:
+    raise ValueError(f"Entry too large: {entry.size} bytes")
+```
+
+## Comparison with Other Formats
+
+| Feature | PAQ | ZIP | TAR |
+|---------|-----|-----|-----|
+| Compression | No | Yes | No (external) |
+| Random access | No | Yes | No |
+| Central directory | No | Yes | No |
+| Metadata | No | Yes | Yes |
+| Streaming | Yes | Partial | Yes |
+| Complexity | Very low | High | Medium |
+
+**Design choice**: PAQ prioritizes simplicity and fast sequential reads over features.
+
+## Related Formats
+
+<CardGroup cols={2}>
+  <Card title="JAZ Textures" href="/reverse-engineering/formats/jaz-textures">
+    Compressed texture format inside PAQ archives
+  </Card>
+  <Card title="Config Files" href="/reverse-engineering/formats/config-files">
+    Binary configuration blobs
+  </Card>
+  <Card title="Save Files" href="/reverse-engineering/formats/save-files">
+    Obfuscated save game format
+  </Card>
+</CardGroup>
+
+## Implementation Notes
+
+- The decoder uses [`construct`](https://construct.readthedocs.io/) for declarative binary parsing
+- `GreedyRange` reads entries until EOF (no explicit count field)
+- Entry names are validated to prevent directory traversal
+- The extractor automatically converts JAZ to PNG
+
+## References
+
+- Source: `src/grim/paq.py`
+- Tests: `tests/test_paq.py`
+- CLI: `src/crimson/cli.py` (`extract` command)

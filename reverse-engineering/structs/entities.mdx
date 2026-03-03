@@ -1,0 +1,272 @@
+---
+title: Entity Structures
+description: Creature, projectile, and effect pool layouts
+---
+
+This page documents the main entity pools used for gameplay simulation: creatures (enemies), projectiles (bullets/beams), and visual effects.
+
+## Creature Pool
+
+**Base**: `0x0048d0a8` (`creature_pool`)  
+**Entry size**: `0x98` bytes  
+**Count**: `0x180` entries (384 creatures max)
+
+### Struct Layout
+
+```c
+typedef struct {
+    u8 active;              // +0x00
+    u8 _pad[3];
+    i32 type_id;            // +0x04
+    float pos_x;            // +0x08
+    float pos_y;            // +0x0c
+    float health;           // +0x10
+    float max_health;       // +0x14
+    float vel_x;            // +0x18
+    float vel_y;            // +0x1c
+    float size;             // +0x20
+    float move_speed;       // +0x24
+    float target_x;         // +0x28
+    float target_y;         // +0x2c
+    i32 target_player;      // +0x30
+    float anim_phase;       // +0x34
+    float death_timer;      // +0x38
+    u8 flags;               // +0x3c
+    // ... more fields
+} creature_t;  // 0x98 bytes
+```
+
+### Key Fields
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x00 | active | u8 | 1 if slot occupied |
+| 0x04 | type_id | i32 | Creature type (0-31) |
+| 0x08 | pos_x | float | World position X |
+| 0x0c | pos_y | float | World position Y |
+| 0x10 | health | float | Current health |
+| 0x14 | max_health | float | Maximum health |
+| 0x20 | size | float | Collision radius |
+| 0x30 | target_player | i32 | Targeted player index |
+| 0x38 | death_timer | float | Fade-out timer after death |
+
+## Projectile Pool
+
+**Base**: `0x004926b8` (`projectile_pool`)  
+**Entry size**: `0x40` bytes  
+**Count**: `0x60` entries (96 projectiles max)
+
+### Struct Layout
+
+```c
+typedef struct {
+    u8 active;              // +0x00
+    u8 _pad[3];
+    float angle;            // +0x04
+    float pos_x;            // +0x08
+    float pos_y;            // +0x0c
+    float origin_x;         // +0x10
+    float origin_y;         // +0x14
+    float vel_x;            // +0x18
+    float vel_y;            // +0x1c
+    i32 type_id;            // +0x20
+    float life_timer;       // +0x24
+    float reserved;         // +0x28
+    float speed_scale;      // +0x2c
+    float damage_pool;      // +0x30
+    float hit_radius;       // +0x34
+    float base_damage;      // +0x38
+    i32 owner_id;           // +0x3c
+} projectile_t;  // 0x40 bytes
+```
+
+### Key Fields
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x00 | active | u8 | 1 if slot occupied |
+| 0x04 | angle | float | Direction (radians) |
+| 0x08 | pos_x | float | Current position X |
+| 0x0c | pos_y | float | Current position Y |
+| 0x20 | type_id | i32 | Projectile type (weapon-specific) |
+| 0x24 | life_timer | float | Despawns when &lt;= 0 |
+| 0x30 | damage_pool | float | Piercing damage budget |
+| 0x3c | owner_id | i32 | Player index (-100 to -103) |
+
+**See**: Complete projectile struct with 20+ fields documented in source code at `src/crimson/projectiles/`.
+
+## Particle Pool
+
+**Base**: `0x00493eb8` (`particle_pool`)  
+**Entry size**: `0x38` bytes  
+**Count**: `0x80` entries (128 particles max)
+
+### Struct Layout
+
+```c
+typedef struct {
+    u8 active;              // +0x00
+    u8 render_flag;         // +0x01
+    u8 _pad[2];
+    float pos_x;            // +0x04
+    float pos_y;            // +0x08
+    float vel_x;            // +0x0c
+    float vel_y;            // +0x10
+    float scale_x;          // +0x14
+    float scale_y;          // +0x18
+    float scale_z;          // +0x1c
+    float age;              // +0x20
+    float intensity;        // +0x24
+    float angle;            // +0x28
+    float spin;             // +0x2c
+    i32 style_id;           // +0x30
+    i32 target_id;          // +0x34
+} particle_t;  // 0x38 bytes
+```
+
+**Usage**: Flamethrower, Blowtorch, Bubblegun weapon effects.
+
+## Secondary Projectile Pool
+
+**Base**: `0x00495ad8` (`secondary_projectile_pool`)  
+**Entry size**: `0x2c` bytes  
+**Count**: `0x40` entries (64 secondaries max)
+
+### Struct Layout
+
+```c
+typedef struct {
+    u8 active;              // +0x00
+    u8 _pad[3];
+    float angle;            // +0x04
+    float speed;            // +0x08
+    float pos_x;            // +0x0c
+    float pos_y;            // +0x10
+    float vel_x;            // +0x14
+    float vel_y;            // +0x18
+    i32 type_id;            // +0x1c
+    float lifetime;         // +0x20
+    i32 target_id;          // +0x24
+} secondary_projectile_t;  // 0x2c bytes
+```
+
+**Usage**: Rocket Launcher, Seeker Rockets, Rocket Minigun projectiles.
+
+### Type Behaviors
+
+| type_id | Behavior |
+|---------|----------|
+| 1 | Straight rocket (accelerates) |
+| 2 | Homing rocket (steers toward target) |
+| 3 | Detonation state (expanding explosion) |
+| 4 | Fast straight rocket |
+
+## Effect Pool
+
+**Base**: `0x004ab1dc` (`effect_pool`)  
+**Entry size**: `0xbc` bytes  
+**Free list head**: `effect_free_list_head`
+
+### Struct Layout
+
+```c
+typedef struct {
+    float pos_x;            // +0x00
+    float pos_y;            // +0x04
+    u8 effect_id;           // +0x08
+    u8 _pad[3];
+    float vel_x;            // +0x0c
+    float vel_y;            // +0x10
+    float rotation;         // +0x14
+    float scale;            // +0x18
+    float half_width;       // +0x1c
+    float half_height;      // +0x20
+    float age;              // +0x24
+    float lifetime;         // +0x28
+    i32 flags;              // +0x2c
+    float color_r;          // +0x30
+    float color_g;          // +0x34
+    float color_b;          // +0x38
+    float color_a;          // +0x3c
+    float rotation_step;    // +0x40
+    float scale_step;       // +0x44
+    float quad_data[29];    // +0x48
+} effect_entry_t;  // 0xbc bytes
+```
+
+**Usage**: Blood splatters, explosions, freeze shards, hit sparks.
+
+### Effect Flags
+
+| Bit | Meaning |
+|-----|----------|
+| 0x1 | Active (entry in use) |
+| 0x4 | Update rotation |
+| 0x8 | Update scale |
+| 0x10 | Fade alpha over lifetime |
+| 0x40 | Render in first batch |
+| 0x80 | Spawn FX queue on expire |
+| 0x100 | Use dim alpha on expire |
+
+## Sprite Effect Pool
+
+**Base**: `0x00496820` (`sprite_effect_pool`)  
+**Entry size**: `0x2c` bytes  
+**Count**: `0x180` entries (384 sprites max)
+
+### Struct Layout
+
+```c
+typedef struct {
+    i32 active;             // +0x00
+    float color_r;          // +0x04
+    float color_g;          // +0x08
+    float color_b;          // +0x0c
+    float color_a;          // +0x10
+    float rotation;         // +0x14
+    float pos_x;            // +0x18
+    float pos_y;            // +0x1c
+    float vel_x;            // +0x20
+    float vel_y;            // +0x24
+    float scale;            // +0x28
+} sprite_effect_t;  // 0x2c bytes
+```
+
+**Usage**: Projectile hit sparks, detonation bursts.
+
+## FX Queue (Structure-of-Arrays)
+
+**Base**: `0x004912b8` (`fx_queue`)  
+**Entry count**: `0x80` (128 max)  
+**Queue length**: `fx_queue_count` @ `0x004912b0`
+
+### Field Arrays
+
+| Field | Base | Stride |
+|-------|------|--------|
+| effect_id | `0x004912b8` | 4 bytes |
+| rotation | `0x004914b8` | 4 bytes |
+| pos_x | `0x004916b8` | 4 bytes |
+| pos_y | `0x004918b8` | 4 bytes |
+| height | `0x00491ab8` | 4 bytes |
+| width | `0x00491cb8` | 4 bytes |
+| color_r | `0x00491eb8` | 4 bytes |
+| color_g | `0x004920b8` | 4 bytes |
+| color_b | `0x004922b8` | 4 bytes |
+| color_a | `0x004924b8` | 4 bytes |
+
+**Usage**: Baked terrain decals (blood, corpse shadows).
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Game State" href="/reverse-engineering/structs/game-state">
+    Global game state and configuration
+  </Card>
+  <Card title="Weapon Structures" href="/reverse-engineering/structs/weapons">
+    Weapon tables and player weapon state
+  </Card>
+  <Card title="Effects Docs" href="/structs/effects">
+    Complete effect pool documentation
+  </Card>
+</CardGroup>

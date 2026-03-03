@@ -1,0 +1,286 @@
+---
+title: Reverse Engineering Methodology
+description: The complete workflow for recovering and verifying original game behavior
+---
+
+This page describes the systematic approach used to reverse engineer Crimsonland 1.9.93 and achieve behavioral parity in the reimplementation.
+
+## Core Principles
+
+### 1. Static Analysis as Source of Truth
+
+Ghidra decompilation provides the authoritative view of program structure:
+
+- Function boundaries and call graphs
+- Data structure layouts and access patterns  
+- Control flow and branching logic
+
+**Maps are king**: All recovered names and types live in:
+
+- `analysis/ghidra/maps/name_map.json` - Function and global names
+- `analysis/ghidra/maps/data_map.json` - Data structure definitions
+
+### 2. Runtime Validation for Ambiguity
+
+When static analysis is unclear (polymorphic calls, magic constants, undocumented algorithms), use runtime instrumentation:
+
+- **Frida** for high-frequency capture (RNG traces, state snapshots)
+- **WinDbg** for deep inspection (memory dumps, conditional breakpoints)
+
+### 3. Differential Testing for Verification
+
+Every behavioral claim must be verified by running original and rewrite with identical inputs and comparing state:
+
+- Deterministic replay system with seeded RNG
+- Tick-aligned state checkpoints
+- Field-by-field comparison (player position, creature health, projectile count)
+
+## The Five-Stage Workflow
+
+<Steps>
+  <Step title="Stage 1: Initial Decompilation">
+    ### Load Binary into Ghidra
+
+    1. Import `crimsonland.exe` and `grim.dll`
+    2. Apply auto-analysis (function discovery, string search)
+    3. Import third-party headers (Windows API, DirectX, standard library)
+    4. Export raw decompiled C to `analysis/ghidra/raw/`
+
+    **Output**: Baseline decompile with default symbol names (`FUN_00401234`, `DAT_00480348`)
+  </Step>
+
+  <Step title="Stage 2: Symbol Recovery">
+    ### Identify Key Functions
+
+    Start with high-level entry points and work inward:
+
+    1. **WinMain** - Program entry point
+    2. **Game loop** - Main update/render cycle
+    3. **State machine** - Menu navigation, mode transitions
+    4. **Core systems** - Player update, creature AI, projectile physics
+
+    ### Naming Strategy
+
+    Use consistent prefixes:
+
+    - `player_*` - Player state and actions
+    - `creature_*` - Enemy pool and AI
+    - `projectile_*` - Bullet/beam physics
+    - `weapon_*` - Weapon tables and fire logic
+    - `perk_*` - Perk effects and counts
+    - `bonus_*` - Pickup spawn and application
+    - `config_*` - Configuration blob fields
+    - `grim_*` - Grim2D engine calls
+
+    ### Store in Maps
+
+    ```json
+    // analysis/ghidra/maps/name_map.json
+    {
+      "0x004136b0": "player_update",
+      "0x00420b90": "projectile_update",
+      "0x00480348": "config_blob"
+    }
+    ```
+
+    **Output**: Human-readable symbol names for ~500 functions and ~200 globals
+  </Step>
+
+  <Step title="Stage 3: Runtime Evidence Collection">
+    ### Frida Instrumentation
+
+    Hook key functions to capture actual runtime behavior:
+
+    ```javascript
+    // scripts/frida/gameplay_diff_capture.js
+    Interceptor.attach(playerUpdateAddr, {
+      onEnter: function(args) {
+        capturePlayerState();
+        captureCreaturePool();
+        captureProjectilePool();
+      }
+    });
+    ```
+
+    Run the original game with instrumentation:
+
+    ```bash
+    frida -n crimsonland.exe -l gameplay_diff_capture.js
+    ```
+
+    **Captures**:
+    - RNG call sequences and return values
+    - Damage calculations (input/output pairs)
+    - State transitions (menu IDs, game mode)
+    - Struct field values at known offsets
+
+    ### WinDbg Deep Inspection
+
+    For one-off questions:
+
+    ```
+    bp 0x00420b90 ".printf \"proj[%d] type=%d pos=(%.2f,%.2f)\\n\", @ecx, poi(@ecx+0x20), dwo(@ecx+8), dwo(@ecx+0xc); g"
+    ```
+
+    **Output**: Evidence logs in `analysis/frida/raw/*.jsonl`
+  </Step>
+
+  <Step title="Stage 4: Struct Layout Recovery">
+    ### Cross-Reference Static and Runtime
+
+    Combine decompiled memory access patterns with captured runtime values:
+
+    **Example: Player struct**
+
+    Static analysis shows:
+    ```c
+    float health = *(float*)(player_base + player_idx * 0x360);
+    float pos_x = *(float*)(player_base + player_idx * 0x360 - 0x10);
+    ```
+
+    Runtime capture confirms:
+    ```json
+    {"offset": 0, "value": 95.0, "label": "health after damage"},
+    {"offset": -16, "value": 432.5, "label": "pos_x"}
+    ```
+
+    **Document in struct pages**:
+
+    | Offset | Field | Evidence |
+    |--------|-------|----------|
+    | 0x00 | health | `player_take_damage` writes; < 0 triggers death |
+    | -0x10 | pos_x | Camera centering, distance checks |
+
+    **Output**: Complete struct documentation in `docs/structs/`
+  </Step>
+
+  <Step title="Stage 5: Differential Verification">
+    ### Implement and Test
+
+    1. Port behavior to Python rewrite using recovered names/structs
+    2. Record a replay in the original game with Frida capture
+    3. Play back same inputs in the rewrite
+    4. Compare state checkpoints tick-by-tick
+
+    ```bash
+    # Capture original run
+    frida -n crimsonland.exe -l gameplay_diff_capture.js
+    # produces: gameplay_diff_capture.json
+
+    # Verify rewrite
+    uv run crimson replay verify capture.json
+    ```
+
+    **Divergence detection**:
+    ```
+    DIVERGENCE at tick 347:
+      player[0].pos_x: expected=432.5 actual=432.501
+      RNG call count: expected=1204 actual=1205
+    ```
+
+    **Fix divergences** → iterate back to Stage 3 or 4
+
+    **Output**: Verified parity across Survival, Rush, Quest modes
+  </Step>
+</Steps>
+
+## Hotspot Extraction
+
+For complex functions (1000+ lines), extract focused slices:
+
+```bash
+# Extract projectile_update + direct callees
+uv run scripts/ghidra_hotspot_extract.py \
+  --function projectile_update \
+  --depth 1 \
+  --out analysis/ghidra/derived/hotspots/projectile_update/
+```
+
+**Benefits**:
+- Isolated context for renaming and annotation
+- Includes direct callees for complete logic flow
+- Work files separate from immutable baseline
+
+## Parity Workflow Example
+
+Let's trace how we recovered the **Fire Bullets bonus** behavior:
+
+### 1. Static: Find the hook
+
+```c
+// projectile_spawn @ 0x00420440
+if (owner_id <= -100 && player_fire_bullets_timer[owner_id] > 0.0) {
+  type_id = 0x2d;  // Force fire projectile type
+}
+```
+
+### 2. Runtime: Confirm the behavior
+
+```json
+{"event": "projectile_spawn", "owner": -100, "requested_type": 1, "actual_type": 45, "fire_bullets_timer": 8.5}
+```
+
+### 3. Implement in rewrite
+
+```python
+def projectile_spawn(pos, angle, type_id, owner_id):
+    if owner_id <= -100:
+        player_idx = -owner_id - 100
+        if player_state.fire_bullets_timer[player_idx] > 0:
+            type_id = 0x2d
+    # ... rest of spawn logic
+```
+
+### 4. Verify with differential test
+
+```python
+def test_fire_bullets_override(replay_fixture):
+    # Replay includes Fire Bullets pickup at tick 120
+    result = replay_runner.verify_checkpoints(replay_fixture)
+    assert result.projectile_type_matches  # Original used 0x2d
+    assert result.damage_matches          # Fire damage applied
+```
+
+## Tools and Scripts
+
+Key automation in `scripts/`:
+
+- `ghidra_analyze.py` - Apply name maps, regenerate decompiles
+- `frida_reduce.py` - Normalize Frida logs into evidence facts
+- `ghidra_hotspot_extract.py` - Extract function subgraphs
+- `replay_verify.py` - Differential checkpoint comparison
+
+## Evidence Promotion
+
+After reviewing runtime captures, promote findings to authoritative maps:
+
+1. Review `analysis/frida/name_map_candidates.json`
+2. Manually merge high-confidence entries into `analysis/ghidra/maps/name_map.json`
+3. Rerun Ghidra scripts to apply names: `just ghidra-exe`
+4. Update documentation in `docs/`
+
+<Warning>
+  Never edit `analysis/ghidra/raw/` directly - it's regenerated output. Edit maps instead.
+</Warning>
+
+## Success Metrics
+
+- **500+ functions** named and documented
+- **200+ globals** identified with struct layouts
+- **Full parity** in Survival mode (1000+ tick replays match)
+- **Quest completion** verified across all 90 levels
+- **Deterministic replays** with frame-perfect accuracy
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Ghidra Workflow" href="/reverse-engineering/static/ghidra-workflow">
+    Detailed Ghidra setup and scripting
+  </Card>
+  <Card title="Frida Capture" href="/reverse-engineering/runtime/frida-capture">
+    Runtime instrumentation guide
+  </Card>
+  <Card title="Differential Testing" href="/reverse-engineering/runtime/differential-testing">
+    Verification and replay system
+  </Card>
+</CardGroup>

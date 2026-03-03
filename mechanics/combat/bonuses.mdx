@@ -1,0 +1,456 @@
+---
+title: Power-up Bonuses
+description: All 14 bonus types with effects and durations
+icon: star
+---
+
+# Power-up Bonuses
+
+Bonuses are temporary power-ups that drop from killed creatures. They provide instant effects (Nuke, MediKit) or timed buffs (Energizer, Shield). Strategic bonus usage is critical for survival.
+
+## Bonus System
+
+From `src/crimson/bonuses/ids.py:11-27`:
+
+```python
+class BonusId(IntEnum):
+    UNUSED = 0
+    POINTS = 1
+    ENERGIZER = 2
+    WEAPON = 3
+    WEAPON_POWER_UP = 4
+    NUKE = 5
+    DOUBLE_EXPERIENCE = 6
+    SHOCK_CHAIN = 7
+    FIREBLAST = 8
+    REFLEX_BOOST = 9
+    SHIELD = 10
+    FREEZE = 11
+    MEDIKIT = 12
+    SPEED = 13
+    FIRE_BULLETS = 14
+```
+
+### Bonus Spawning
+
+**Drop Chance**: Varies by bonus type and game state
+
+**Pistol Boost**: While holding Pistol:
+- 75% of bonuses forced to be weapon pickups
+- Overall bonus drop rate increased ~50%
+
+**Bonus Magnet Perk**: Second chance roll on kills that don't spawn bonuses
+
+**My Favourite Weapon Perk**: Disables weapon bonuses entirely
+
+**Boss Creatures**: Flag 0x400 guarantees bonus drop
+
+### Pickup Mechanics
+
+**Collision**: Walk over bonus to collect
+
+**Telekinetic Perk**: Aim at bonus within 24 units for 650ms to collect remotely
+
+**Expiration**: Bonuses despawn after 15-20 seconds if not collected
+
+## Complete Bonus List
+
+All bonus types with stats from `src/crimson/bonuses/ids.py:39-169`.
+
+<Accordion title="1. Points">
+**Instantly gain +500 XP**
+
+**Description**: "You gain some experience points."
+
+**Effect**: Adds 500 XP to score immediately
+
+**Icon ID**: 12
+
+**Duration**: Instant
+
+**Strategy**: Always collect. Free XP toward next level.
+</Accordion>
+
+<Accordion title="2. Energizer">
+**Monsters run from you, walk through them to kill**
+
+**Description**: "Suddenly monsters run away from you and you can eat them."
+
+**Effect**: 
+- Creatures flee from player for 8 seconds
+- Touching fleeing creatures kills them instantly
+- Awards normal XP for kills
+
+**Icon ID**: 10
+
+**Base Duration**: 8 seconds
+
+**With Bonus Economist**: 12 seconds (8 × 1.5)
+
+**Strategy**: 
+- Best used when surrounded
+- Chase fleeing enemies for mass kills
+- Combo with Speed bonus for maximum kills
+
+**Pac-Man Reference**: This is Crimsonland's power pellet mechanic
+</Accordion>
+
+<Accordion title="3. Weapon">
+**Grants random weapon**
+
+**Description**: "You get a new weapon."
+
+**Effect**: Assigns random weapon (type determined by bonus spawn config)
+
+**Icon ID**: -1 (varies by weapon)
+
+**Default Weapon ID**: 3 (often overridden)
+
+**Duration**: Permanent (until next weapon pickup)
+
+**Strategy**: 
+- Early game: Always collect
+- Late game: Evaluate if better than current weapon
+- Can't "uncollect" - be careful near bad weapons
+</Accordion>
+
+<Accordion title="4. Weapon Power Up">
+**Fire rate and reload speed 2x faster**
+
+**Description**: "Your fire rate and load time increase for a short period."
+
+**Effect**:
+- Fire rate ×2 (shot_cooldown ×0.5)
+- Reload speed ×2 (reload_time ×0.5)
+
+**Icon ID**: 7
+
+**Base Duration**: 10 seconds (internal timer value)
+
+**With Bonus Economist**: 15 seconds
+
+**Strategy**:
+- Massive DPS boost
+- Use during high-density enemy waves
+- Combo with high-damage weapons (Plasma Cannon, Ion Cannon)
+- Reload weapons just before duration ends
+</Accordion>
+
+<Accordion title="5. Nuke">
+**Massive explosion clears screen**
+
+**Description**: "An amazing explosion of ATOMIC power."
+
+**Effect**:
+- Large explosion centered on player
+- Kills or heavily damages all on-screen enemies
+- Screen shake and visual effects
+- Awards XP for kills
+
+**Icon ID**: 1
+
+**Damage**: Massive (kills most non-boss enemies)
+
+**Radius**: Full screen
+
+**Duration**: Instant
+
+**Strategy**:
+- Emergency "panic button"
+- Use when overwhelmed
+- Don't waste on 2-3 enemies
+- Save for dense swarms (15+ enemies)
+</Accordion>
+
+<Accordion title="6. Double Experience">
+**All XP ×2 for duration**
+
+**Description**: "Every experience point you get is doubled when this bonus is active."
+
+**Effect**: XP gains multiplied by 2
+
+**Icon ID**: 4
+
+**Base Duration**: 6 seconds
+
+**With Bonus Economist**: 9 seconds (6 × 1.5)
+
+**Strategy**:
+- Collect immediately
+- Kill as many enemies as possible during duration
+- Combo with Energizer for massive XP gains
+- Synergizes with Bloody Mess (+30% XP) for 2.6x total multiplier
+</Accordion>
+
+<Accordion title="7. Shock Chain">
+**Lightning chains between enemies**
+
+**Description**: "Chain of shocks shock the crowd."
+
+**Effect**:
+- Spawns chained lightning projectiles (type 0x15)
+- Lightning jumps between enemies
+- Multiple damage ticks
+
+**Icon ID**: 3
+
+**Damage**: Moderate per tick, devastating to groups
+
+**Duration**: Instant (but chain effect persists briefly)
+
+**Strategy**:
+- Best against grouped enemies
+- Lightning follows enemy proximity
+- Can clear entire screen if enemies bunched
+</Accordion>
+
+<Accordion title="8. Fireblast">
+**Ring of fireballs radiates from player**
+
+**Description**: "Fireballs all over the place."
+
+**Effect**: Spawns radial burst of projectiles (type 9) from player position
+
+**Icon ID**: 2
+
+**Projectile Count**: 16-24 (radial pattern)
+
+**Damage**: Moderate per projectile
+
+**Duration**: Instant
+
+**Strategy**:
+- Similar to Nuke but less powerful
+- Good for moderate crowds
+- Don't save it - collect when available
+</Accordion>
+
+<Accordion title="9. Reflex Boost">
+**Game slows down 10%**
+
+**Description**: "You get more time to react as the game slows down."
+
+**Effect**: Game time scale ×0.9 (10% slower)
+
+**Icon ID**: 5
+
+**Base Duration**: 3 seconds
+
+**With Bonus Economist**: 4.5 seconds
+
+**Strategy**:
+- Gives time to reposition
+- Easier aiming
+- Synergizes with Reflex Boosted perk (20% slow total)
+- Use during tricky situations
+
+**Note**: Affects ALL game elements (enemies, projectiles, you)
+</Accordion>
+
+<Accordion title="10. Shield">
+**Force field absorbs damage**
+
+**Description**: "Force field protects you for a while."
+
+**Effect**: 
+- Absorbs all incoming damage
+- Visual shield effect around player
+- Breaks after duration expires
+
+**Icon ID**: 6
+
+**Base Duration**: 7 seconds
+
+**With Bonus Economist**: 10.5 seconds (7 × 1.5)
+
+**Strategy**:
+- Best defensive bonus
+- Use to wade into crowds safely
+- Collect during low HP emergencies
+- Prevents Veins of Poison from activating (no contact damage)
+</Accordion>
+
+<Accordion title="11. Freeze">
+**All enemies frozen in place**
+
+**Description**: "Monsters are frozen."
+
+**Effect**:
+- All creatures stop moving and attacking
+- Enemies still take damage
+- Allows safe repositioning
+
+**Icon ID**: 8
+
+**Base Duration**: 5 seconds
+
+**With Bonus Economist**: 7.5 seconds (5 × 1.5)
+
+**Strategy**:
+- Emergency repositioning
+- Reload all weapons safely
+- Thin out frozen crowds
+- Combo with AoE weapons to maximize damage
+</Accordion>
+
+<Accordion title="12. MediKit">
+**Restore health**
+
+**Description**: "You regain some of your health."
+
+**Effect**: Restores 10 HP per tick (multiple ticks in quick succession)
+
+**Icon ID**: 14
+
+**Healing Amount**: 10 HP per application (can trigger multiple times)
+
+**Duration**: Instant (but multi-tick)
+
+**Strategy**:
+- Critical for sustain
+- Don't collect at full HP (wasted)
+- Life-saving in dire situations
+
+**Note**: Death Clock perk prevents MediKit spawns
+</Accordion>
+
+<Accordion title="13. Speed">
+**Movement speed increased**
+
+**Description**: "Your movement speed increases for a while."
+
+**Effect**: Movement speed multiplier bonus
+
+**Icon ID**: 9
+
+**Base Duration**: 8 seconds
+
+**With Bonus Economist**: 12 seconds (8 × 1.5)
+
+**Strategy**:
+- Great for kiting
+- Escape surrounded situations
+- Combo with Energizer to chase fleeing enemies
+- Synergizes with Long Distance Runner perk
+</Accordion>
+
+<Accordion title="14. Fire Bullets">
+**Projectiles become fire type**
+
+**Description**: "For a few seconds -- make them count."
+
+**Effect**: 
+- All player projectiles become Fire Bullets (type 0x2d)
+- Pellet count from current weapon
+- Fire visual effects
+
+**Icon ID**: 11
+
+**Base Duration**: 5 seconds
+
+**With Bonus Economist**: 7.5 seconds (5 × 1.5)
+
+**Strategy**:
+- Converts any weapon to fire type
+- Synergizes with Pyromaniac perk (+50% fire damage)
+- Best with multi-pellet weapons (Shotgun, Plasma Shotgun)
+- Use aggressively during duration
+</Accordion>
+
+## Bonus Economist Perk
+
+From perk 32, timed bonuses last 50% longer:
+
+**Affected Bonuses**:
+- Energizer: 8s → 12s
+- Weapon Power Up: 10s → 15s
+- Double Experience: 6s → 9s
+- Reflex Boost: 3s → 4.5s
+- Shield: 7s → 10.5s
+- Freeze: 5s → 7.5s
+- Speed: 8s → 12s
+- Fire Bullets: 5s → 7.5s
+
+**Not Affected** (instant bonuses):
+- Points, Weapon, Nuke, Shock Chain, Fireblast, MediKit
+
+## Bonus Priority Guide
+
+### Always Collect
+1. **MediKit** (if damaged)
+2. **Weapon** (if significantly better)
+3. **Points** (free XP)
+4. **Double Experience** (always beneficial)
+
+### Situational - Save for Emergencies
+1. **Nuke** (best panic button)
+2. **Freeze** (reposition/reload)
+3. **Shield** (tank through danger)
+4. **Energizer** (escape + kills)
+
+### Situational - Use Tactically
+1. **Weapon Power Up** (high DPS moments)
+2. **Shock Chain** (grouped enemies)
+3. **Fireblast** (moderate crowds)
+4. **Speed** (kiting/escaping)
+5. **Reflex Boost** (aiming/dodging)
+6. **Fire Bullets** (DPS burst)
+
+## Bonus Combos
+
+### Maximum XP Gain
+
+**Combo**: Double Experience + Energizer + Bloody Mess perk
+
+**Effect**: 2.6x XP multiplier while chasing fleeing enemies
+
+**Duration**: 6-9 seconds
+
+### Maximum DPS
+
+**Combo**: Weapon Power Up + Fire Bullets + Pyromaniac perk
+
+**Effect**: 3x fire rate + fire conversion + 1.5x damage
+
+**Duration**: 5-7.5 seconds
+
+### Maximum Safety
+
+**Combo**: Shield + Freeze
+
+**Effect**: Invulnerable + enemies can't move
+
+**Duration**: 12-18 seconds total
+
+### Speed Run
+
+**Combo**: Speed + Energizer + Long Distance Runner perk
+
+**Effect**: Extreme movement speed while enemies flee
+
+**Duration**: 8-12 seconds
+
+## Spawn Rate Mechanics
+
+**Base Drop Rate**: ~10-15% per kill (varies by game mode)
+
+**Pistol Multiplier**: ~1.5x drop rate, 75% forced to weapons
+
+**Bonus Magnet Perk**: Second roll on failed spawns (~30-40% effective increase)
+
+**Boss Guarantee**: Creatures with flag 0x400 always drop bonus
+
+**Spawn Weights**: Some bonuses rarer than others (Nuke, Shield rarer than Points, Fireblast)
+
+## Related Documentation
+
+- [Perks](/mechanics/combat/perks) - Bonus Economist and Bonus Magnet perks
+- [Weapons](/mechanics/combat/weapons) - Weapon bonuses
+- [Survival Mode](/mechanics/modes/survival) - Bonus drop patterns
+
+## Source Code References
+
+- `src/crimson/bonuses/ids.py` - Bonus ID definitions and metadata
+- `src/crimson/bonuses/apply.py` - Bonus application logic
+- `src/crimson/bonuses/selection.py` - Bonus spawn selection
+- `src/crimson/bonuses/pool.py` - Bonus object pool management

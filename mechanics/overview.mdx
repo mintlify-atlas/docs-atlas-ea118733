@@ -1,0 +1,134 @@
+---
+title: Game Mechanics Overview
+description: Complete overview of Crimsonland's core gameplay mechanics
+---
+
+# Game Mechanics Overview
+
+Crimsonland is a top-down shooter where you fight hordes of creatures across multiple game modes. This section documents the complete mechanical systems that define how the game works.
+
+## Core Systems
+
+### Combat Mechanics
+
+The combat system revolves around three interconnected elements:
+
+- **[Weapons](/mechanics/combat/weapons)** - 53 unique weapons with distinct fire rates, damage profiles, and projectile behaviors
+- **[Perks](/mechanics/combat/perks)** - 58 passive abilities that modify player capabilities
+- **[Creatures](/mechanics/combat/creatures)** - Enemy types with varied AI behaviors and stats
+- **[Bonuses](/mechanics/combat/bonuses)** - 14 power-up types that provide temporary advantages
+- **[Damage System](/mechanics/combat/damage)** - Distance-based damage calculations with perk modifiers
+
+### Game Modes
+
+Five distinct play modes offer different challenges:
+
+<CardGroup cols={2}>
+  <Card title="Survival" icon="skull" href="/mechanics/modes/survival">
+    Endless waves with progressive difficulty and perk leveling
+  </Card>
+  <Card title="Quest" icon="map" href="/mechanics/modes/quest">
+    60 handcrafted missions with specific objectives
+  </Card>
+  <Card title="Rush" icon="bolt" href="/mechanics/modes/rush">
+    Fast-paced arcade mode with weapon pickups
+  </Card>
+  <Card title="Typ-o-Shooter" icon="keyboard" href="/mechanics/modes/typ-o-shooter">
+    Type words to destroy enemies
+  </Card>
+  <Card title="Tutorial" icon="graduation-cap" href="/mechanics/modes/tutorial">
+    Learn the basics across 5 training missions
+  </Card>
+</CardGroup>
+
+## Progression Systems
+
+### Experience and Leveling
+
+Killing creatures awards experience points. Each level-up in Survival mode triggers perk selection from a random pool of 5 options (or more with Perk Expert/Master perks).
+
+**XP Modifiers:**
+- Bloody Mess/Quick Learner: +30% XP from kills
+- Lean Mean Exp Machine: Generates 10 XP every 0.25 seconds
+- Double Experience bonus: 2x XP multiplier for 6 seconds
+- Instant Winner perk: Immediate +2500 XP
+
+### Weapon Progression
+
+Weapons are acquired through:
+- Random bonus drops during gameplay
+- Quest mission rewards
+- Perk choices (Random Weapon, Alternate Weapon)
+- Secret weapon unlocks
+
+The game actively encourages progression from the starting Pistol by increasing bonus drop rates and forcing 75% of bonuses to be weapon pickups while holding it.
+
+## Advanced Mechanics
+
+<CardGroup cols={2}>
+  <Card title="Secret Weapons" icon="eye-slash" href="/mechanics/advanced/secret-weapons">
+    Hidden weapons with unique unlock conditions
+  </Card>
+  <Card title="Perk Interactions" icon="diagram-project" href="/mechanics/advanced/perk-interactions">
+    Complex synergies and conflicts between perks
+  </Card>
+  <Card title="RNG System" icon="dice" href="/mechanics/advanced/rng">
+    Random number generation for spawns and drops
+  </Card>
+</CardGroup>
+
+## Key Mechanics
+
+### Movement
+
+Base movement speed is 180 units/second with acceleration to max speed over 0.5 seconds. Movement is affected by:
+- Long Distance Runner perk: Extends max speed from 2.0 to 2.8
+- Alternate Weapon perk: -20% speed when carrying two weapons
+- Mean Minigun: Reduced speed while firing
+- Speed bonus: Temporary movement boost
+- Reflex Boost bonus: Slows game speed by 10%
+
+### Damage Calculation
+
+Projectile damage uses a distance-based formula:
+
+```python
+damage = ((100 / distance) * weapon_multiplier * 30 + 10) * 0.95
+```
+
+Where distance is clamped to minimum 50 units. Point-blank shots deal roughly 2x damage compared to long-range hits.
+
+**Damage Modifiers:**
+- Uranium Filled Bullets: 2x damage
+- Barrel Greaser: 1.4x damage
+- Doctor: 1.2x damage
+- Ion Gun Master: 1.2x for ion weapons
+- Pyromaniac: 1.5x for fire weapons
+- Living Fortress: 1.0x to 2.0x based on stationary time
+
+### Spread and Accuracy
+
+Each weapon shot increases spread heat, which decays over time. Sharpshooter perk nearly eliminates spread and adds a laser sight, but reduces fire rate by 5%.
+
+### Ammo System
+
+Weapons have clip sizes and reload times. The reload process can be modified by:
+- Fastloader: 30% faster reload (0.7x multiplier)
+- Anxious Loader: Mash fire button to speed reload
+- Stationary Reloader: 3x reload speed when not moving
+- Ammo Maniac: +25% clip size
+- My Favourite Weapon: +2 clip size
+
+## Design Philosophy
+
+Crimsonland's mechanics emphasize:
+
+1. **Risk/Reward Trade-offs**: Many perks have drawbacks (Thick Skinned, Alternate Weapon, Sharpshooter)
+2. **Escalating Chaos**: Enemy count and difficulty scale continuously
+3. **Build Variety**: 58 perks enable diverse playstyles and synergies
+4. **Skill Expression**: Weapon spread, positioning, and perk choices reward mastery
+5. **Instant Feedback**: Damage numbers, gore effects, and screen shake provide tactile combat feel
+
+<Info>
+For implementation details and source code references, see the [Rewrite documentation](/rewrite/overview).
+</Info>

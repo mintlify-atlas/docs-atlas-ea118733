@@ -1,0 +1,422 @@
+---
+title: Gameplay System
+description: Player movement, weapons, creatures, combat, and progression
+---
+
+The gameplay system implements the core combat loop: player movement, aiming, firing, creature AI, collision detection, and progression (XP/levels/perks).
+
+## Architecture
+
+Gameplay logic is split across multiple modules:
+
+- **`src/crimson/gameplay.py`** — Player update, movement, firing, reload
+- **`src/crimson/creatures/`** — Creature AI, animations, spawning
+- **`src/crimson/projectiles/`** — Projectile pools, hit detection
+- **`src/crimson/bonuses/`** — Bonus pickups and effects
+- **`src/crimson/perks/`** — Perk selection and runtime effects
+- **`src/crimson/weapon_runtime.py`** — Weapon assignment and availability
+
+## Player Update
+
+The main player update loop runs each tick:
+
+```python src/crimson/gameplay.py
+def player_update(
+    player: PlayerState,
+    state: GameplayState,
+    dt: float,
+    input: PlayerInput,
+    *,
+    world_size: float,
+    # ... other params
+) -> None:
+    """Update one player for one frame."""
+    
+    # 1. Movement
+    apply_player_movement(
+        player, 
+        input, 
+        dt,
+        world_size=world_size,
+    )
+    
+    # 2. Aiming
+    apply_player_aim(
+        player,
+        input,
+        aim_scheme=state.aim_scheme,
+    )
+    
+    # 3. Reload
+    update_reload_timer(
+        player,
+        input,
+        dt,
+        stationary_reloader_active=perk_active(player, PerkId.STATIONARY_RELOADER),
+    )
+    
+    # 4. Firing
+    if input.fire and can_fire(player):
+        player_fire_weapon(
+            player,
+            state,
+            projectiles=state.projectiles,
+        )
+    
+    # 5. Bonus timers
+    update_bonus_timers(player, dt)
+    
+    # 6. Perk tick hooks
+    apply_player_perk_ticks(player, state, dt)
+```
+
+## Movement System
+
+```python
+def apply_player_movement(
+    player: PlayerState,
+    input: PlayerInput,
+    dt: float,
+    *,
+    world_size: float,
+) -> None:
+    """Apply player movement with boundary clamping."""
+    
+    # Base speed
+    base_speed = 100.0
+    
+    # Speed modifiers
+    speed_mult = 1.0
+    if player.speed_bonus_timer > 0:
+        speed_mult = 1.5  # Speed bonus: +50%
+    
+    # Movement direction
+    dx = 0.0
+    dy = 0.0
+    if input.up:
+        dy -= 1.0
+    if input.down:
+        dy += 1.0
+    if input.left:
+        dx -= 1.0
+    if input.right:
+        dx += 1.0
+    
+    # Normalize diagonal movement
+    if dx != 0.0 and dy != 0.0:
+        length = math.sqrt(dx * dx + dy * dy)
+        dx /= length
+        dy /= length
+    
+    # Apply movement
+    speed = base_speed * speed_mult * dt
+    player.pos.x += dx * speed
+    player.pos.y += dy * speed
+    
+    # Clamp to world bounds
+    player.pos.x = max(0.0, min(world_size, player.pos.x))
+    player.pos.y = max(0.0, min(world_size, player.pos.y))
+```
+
+### Movement Perks
+
+- **Speed Bonus** — Temporary +50% movement speed
+- **Angry Reloader** — +25% speed while reloading
+- **Slow Motion** — Global time scale affects enemies but not player input
+
+## Weapon System
+
+### Weapon Firing
+
+```python src/crimson/gameplay.py
+def player_fire_weapon(
+    player: PlayerState,
+    state: GameplayState,
+    projectiles: ProjectilePool,
+) -> None:
+    """Fire the player's weapon."""
+    
+    weapon = WEAPON_TABLE[player.weapon.weapon_id]
+    
+    # Check ammo
+    if player.weapon.ammo <= 0:
+        start_reload(player)
+        return
+    
+    # Check fire rate
+    if player.weapon.cooldown > 0:
+        return
+    
+    # Consume ammo
+    player.weapon.ammo -= 1
+    player.shot_seq += 1
+    
+    # Reset cooldown
+    player.weapon.cooldown = weapon.fire_rate
+    
+    # Spawn projectiles
+    for i in range(weapon.projectiles_per_shot):
+        angle = player.aim_angle + calc_spread(
+            weapon, 
+            i, 
+            weapon.projectiles_per_shot
+        )
+        
+        projectiles.spawn(
+            type_id=weapon.projectile_type,
+            pos=player.pos,
+            angle=angle,
+            owner=OwnerRef.player(player.index),
+        )
+```
+
+### Weapon Table
+
+Weapons are defined in `src/crimson/weapons.py`:
+
+```python
+class WeaponEntry(msgspec.Struct):
+    weapon_id: WeaponId
+    name: str
+    ammo_class: int              # Projectile type category
+    clip_size: int               # Magazine size
+    ammo_count: int              # Total ammo pool
+    fire_rate: float             # Cooldown between shots
+    projectiles_per_shot: int    # Burst count
+    projectile_type: int         # ProjectileTemplateId
+    fire_sound: str              # SFX key
+    reload_sound: str            # SFX key
+```
+
+Example:
+
+```python
+WEAPON_TABLE[WeaponId.SHOTGUN] = WeaponEntry(
+    weapon_id=WeaponId.SHOTGUN,
+    name="Shotgun",
+    clip_size=8,
+    ammo_count=80,
+    fire_rate=0.6,
+    projectiles_per_shot=8,
+    projectile_type=ProjectileTemplateId.SHOTGUN_PELLET,
+    fire_sound="sfx_shotgun_fire",
+    reload_sound="sfx_shotgun_reload",
+)
+```
+
+## Creature System
+
+### Creature AI
+
+Creatures use simple heuristic AI:
+
+```python src/crimson/creatures/ai.py
+def creature_ai_update(
+    creature: Creature,
+    target_pos: Vec2,
+    dt: float,
+) -> None:
+    """Update creature AI and movement."""
+    
+    # Calculate direction to target
+    dx = target_pos.x - creature.pos.x
+    dy = target_pos.y - creature.pos.y
+    distance = math.sqrt(dx * dx + dy * dy)
+    
+    if distance < 1.0:
+        return  # Already at target
+    
+    # Turn toward target
+    target_angle = math.atan2(dy, dx)
+    creature.heading = angle_approach(
+        creature.heading,
+        target_angle,
+        turn_rate=creature.turn_rate * dt,
+    )
+    
+    # Move forward
+    speed = creature.base_speed * dt
+    creature.pos.x += math.cos(creature.heading) * speed
+    creature.pos.y += math.sin(creature.heading) * speed
+```
+
+### Creature Types
+
+- **Zombie** — Slow, weak, basic melee
+- **Lizard** — Fast, moderate health
+- **Alien** — Flying, ranged attacks
+- **Spider** — Very fast, low health
+- **Trooper** — Ranged, high health
+
+### Spawn System
+
+```python src/crimson/creatures/spawn.py
+def spawn_creature(
+    pool: CreaturePool,
+    type_id: CreatureTypeId,
+    pos: Vec2,
+) -> Creature | None:
+    """Spawn a creature at position."""
+    
+    # Find free slot
+    slot = pool.find_free_slot()
+    if slot is None:
+        return None
+    
+    # Get template
+    template = CREATURE_TEMPLATES[type_id]
+    
+    # Create creature
+    creature = Creature(
+        type_id=type_id,
+        pos=pos,
+        heading=random_angle(),
+        health=template.max_health,
+        base_speed=template.speed,
+        turn_rate=template.turn_rate,
+        active=True,
+    )
+    
+    pool.creatures[slot] = creature
+    return creature
+```
+
+## Combat System
+
+### Hit Detection
+
+```python src/crimson/projectiles/runtime.py
+def projectile_hit_test(
+    projectile: Projectile,
+    creatures: CreaturePool,
+) -> Creature | None:
+    """Test if projectile hits any creature."""
+    
+    for creature in creatures.active_creatures():
+        # Radius-based collision
+        dx = creature.pos.x - projectile.pos.x
+        dy = creature.pos.y - projectile.pos.y
+        dist_sq = dx * dx + dy * dy
+        
+        hit_radius = creature.collision_radius + projectile.collision_radius
+        
+        if dist_sq < hit_radius * hit_radius:
+            return creature
+    
+    return None
+```
+
+### Damage Application
+
+```python src/crimson/creatures/damage.py
+def creature_apply_damage(
+    creature: Creature,
+    damage: float,
+    damage_type: DamageType,
+) -> bool:
+    """Apply damage to creature. Returns True if killed."""
+    
+    # Apply damage modifiers
+    modified_damage = damage
+    
+    # Headshot multiplier (random chance)
+    if random.random() < HEADSHOT_CHANCE:
+        modified_damage *= 2.0
+    
+    # Type effectiveness
+    if damage_type == DamageType.FIRE:
+        modified_damage *= creature.fire_resistance
+    
+    # Apply damage
+    creature.health -= modified_damage
+    
+    # Check death
+    if creature.health <= 0:
+        creature.active = False
+        return True
+    
+    return False
+```
+
+## Progression System
+
+### Experience and Levels
+
+```python src/crimson/gameplay.py
+def award_experience(
+    state: GameplayState,
+    amount: int,
+) -> bool:
+    """Award XP and check for level up. Returns True if leveled."""
+    
+    state.experience += amount
+    
+    # Check level up
+    next_level_xp = calc_level_threshold(state.level + 1)
+    
+    if state.experience >= next_level_xp:
+        state.level += 1
+        state.perk_selection.pending_count += 1
+        return True
+    
+    return False
+
+def calc_level_threshold(level: int) -> int:
+    """Calculate XP needed for level."""
+    # Formula from original: 50 * level * (level + 1) / 2
+    return 50 * level * (level + 1) // 2
+```
+
+XP Sources:
+
+- Creature kills (base XP per type)
+- **Double Experience** bonus (2x multiplier)
+- **Lean Mean XP Machine** perk (extra XP per kill)
+
+### Perk Selection
+
+See [Perks Module](/rewrite/modules/perks) for details.
+
+## Bonus System
+
+Bonuses drop from creatures and provide temporary effects:
+
+```python src/crimson/bonuses/apply.py
+def apply_bonus(
+    bonus_id: BonusId,
+    player: PlayerState,
+    state: GameplayState,
+) -> None:
+    """Apply bonus effect to player."""
+    
+    if bonus_id == BonusId.MEDIKIT:
+        player.health = min(100, player.health + 50)
+    
+    elif bonus_id == BonusId.SPEED:
+        player.speed_bonus_timer = 8.0
+    
+    elif bonus_id == BonusId.FIRE_BULLETS:
+        player.fire_bullets_timer = 4.0
+    
+    elif bonus_id == BonusId.FREEZE:
+        state.effects.freeze_timer = 5.0
+    
+    # ... more bonuses
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Rendering System" icon="palette" href="/rewrite/systems/rendering">
+    Learn about graphics rendering
+  </Card>
+  <Card title="Audio System" icon="volume-high" href="/rewrite/systems/audio">
+    Explore audio routing
+  </Card>
+  <Card title="Perks Module" icon="sparkles" href="/rewrite/modules/perks">
+    Deep dive into perks
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    Understand replay system
+  </Card>
+</CardGroup>

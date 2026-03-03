@@ -1,0 +1,221 @@
+---
+title: Run Command
+description: Launch the Crimsonland reimplementation game
+---
+
+The default command launches the full game flow with menus, gameplay modes, and UI.
+
+## Usage
+
+```bash
+crimson [OPTIONS]
+
+# Explicit run (same as above)
+crimson run [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--width" type="int">
+  Window width in pixels.
+  
+  Default: Use value from `crimson.cfg`
+</ParamField>
+
+<ParamField path="--height" type="int">
+  Window height in pixels.
+  
+  Default: Use value from `crimson.cfg`
+</ParamField>
+
+<ParamField path="--fps" type="int" default="60">
+  Target frame rate.
+</ParamField>
+
+<ParamField path="--seed" type="int">
+  RNG seed for deterministic runs.
+  
+  When set, all random events (spawns, perks, drops) will be reproducible.
+</ParamField>
+
+<ParamField path="--demo" type="flag">
+  Enable shareware demo mode.
+  
+  Restricts available content to match the original 2003 demo version.
+</ParamField>
+
+<ParamField path="--no-intro" type="flag">
+  Skip company splashes and intro music.
+  
+  Useful for rapid iteration during development.
+</ParamField>
+
+<ParamField path="--debug" type="flag">
+  Enable debug cheats and overlays.
+  
+  Provides access to:
+  - Frame time overlays
+  - Entity debug info
+  - Cheat commands
+  - Developer UI
+</ParamField>
+
+<ParamField path="--rtx" type="flag">
+  Enable non-canonical RTX render mode.
+  
+  <Warning>
+  This is an experimental enhanced rendering mode that deviates from behavioral parity with the original game.
+  </Warning>
+</ParamField>
+
+<ParamField path="--preserve-bugs" type="flag">
+  Preserve known original executable bugs and quirks.
+  
+  For maximum parity testing. Enables original game bugs that have been documented.
+</ParamField>
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files (saves, config, logs, replays).
+  
+  Default: Per-user OS data directory
+  
+  Override with `CRIMSON_RUNTIME_DIR` environment variable.
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+<ParamField path="--assets-dir" type="Path">
+  Assets root directory.
+  
+  Default: `base-dir`
+  
+  Missing .paq files are automatically downloaded.
+</ParamField>
+
+## Examples
+
+### Basic Launch
+
+```bash
+# Use default settings from crimson.cfg
+crimson
+```
+
+### Custom Resolution
+
+```bash
+crimson --width 1920 --height 1080
+```
+
+### Deterministic Seeded Run
+
+```bash
+# Same seed always produces identical gameplay
+crimson --seed 42 --no-intro
+```
+
+### Shareware Demo Mode
+
+```bash
+crimson --demo
+```
+
+### Development Mode
+
+```bash
+# Debug overlays, skip intro
+crimson --debug --no-intro
+```
+
+### Custom Runtime Directory
+
+```bash
+# Keep all files local to project
+export CRIMSON_RUNTIME_DIR="$PWD/artifacts/runtime"
+crimson
+```
+
+### Point to Original Game Assets
+
+```bash
+crimson --assets-dir /path/to/crimsonland_classic
+```
+
+### High Frame Rate
+
+```bash
+crimson --fps 144 --width 2560 --height 1440
+```
+
+### Preserve Original Bugs
+
+```bash
+# For parity testing against original exe
+crimson --preserve-bugs --seed 12345
+```
+
+## Runtime Files
+
+The game creates the following structure under `base-dir`:
+
+```
+base-dir/
+├── crimson.cfg          # Configuration file
+├── saves/               # Save games
+├── replays/             # Recorded demos (.crd)
+├── logs/                # Game logs
+└── screenshots/         # Screenshots (F12)
+```
+
+## Configuration File
+
+The game reads settings from `crimson.cfg` in the runtime directory:
+
+- Screen resolution
+- Windowed/fullscreen mode
+- Texture scaling
+- Audio settings
+
+Use the [config command](/cli/config) to inspect values.
+
+## Game Modes
+
+All original game modes are available:
+
+- **Survival** — Endless waves of enemies
+- **Rush** — Race against the clock
+- **Quests** — 5 tiers of campaign missions
+- **Tutorial** — Learn the basics
+- **Typ-o-Shooter** — Type to shoot
+
+## Keyboard Controls
+
+See in-game tutorial for full controls. Common keys:
+
+- `WASD` / Arrow keys — Movement
+- Mouse — Aim and shoot
+- `1-9` — Weapon hotkeys
+- `F12` — Screenshot
+- `ESC` — Menu
+
+## Deterministic Simulation
+
+When using `--seed`, the entire game simulation is deterministic:
+
+1. Enemy spawns occur at identical times and positions
+2. RNG rolls for perks, drops, and damage follow the same sequence
+3. Float32 math behavior matches the original executable
+4. Replays can be verified bit-for-bit
+
+This enables:
+- Reproducible bug reports
+- Replay verification
+- Parity testing against original game
+
+## See Also
+
+- [Config Command](/cli/config) — Inspect crimson.cfg
+- [Replay System](/cli/replay/overview) — Record and verify runs
+- [Debug Views](/cli/debug/view) — Development sandboxes

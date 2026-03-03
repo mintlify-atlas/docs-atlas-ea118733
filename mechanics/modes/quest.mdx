@@ -1,0 +1,234 @@
+---
+title: Quest Mode
+description: 60 handcrafted missions with specific objectives
+icon: map
+---
+
+# Quest Mode
+
+Quest mode features 60 handcrafted missions organized into chapters. Each quest has specific objectives, weapon loadouts, and difficulty settings. Completing quests unlocks new weapons and missions.
+
+## Mode ID
+
+**Game Mode**: `3` (`GameMode.QUESTS`)
+
+From `src/crimson/game_modes.py:12`
+
+## Structure
+
+### Chapter Organization
+
+Quests are divided into chapters with progressive difficulty:
+
+**Chapter 1: Tutorial Missions (Quests 1-10)**
+- Introduce basic mechanics
+- Limited enemy types
+- Fixed weapon loadouts
+
+**Chapter 2-5: Standard Missions (Quests 11-50)**
+- Varied objectives
+- Multiple enemy types
+- Weapon variety
+
+**Chapter 6: Hardcore Missions (Quests 51-60)**
+- Extreme difficulty
+- Special rules and restrictions
+- Challenge-focused design
+
+### Quest Format
+
+Each quest defines:
+- Starting weapon(s)
+- Enemy spawn patterns
+- Kill quota or survival time
+- Available perks (quest mode filters perks using `QUEST_MODE_ALLOWED` flag)
+- Weapon unlock rewards
+
+## Quest-Specific Mechanics
+
+### Perk Restrictions
+
+From `src/crimson/perks/ids.py:13`:
+
+```python
+QUEST_MODE_ALLOWED = 0x1  # Only perks with this flag appear in quest mode
+```
+
+Perks **NOT available** in quest mode:
+- Alternate Weapon (perk 9)
+- Grim Deal (perk 8)
+- Final Revenge (perk 19)
+- Highlander (perk 41)
+- Breathing Room (perk 46)
+
+These perks are disabled because they either:
+- Break quest design (Alternate Weapon)
+- Cause instant death (Grim Deal, Final Revenge)
+- Create unfair RNG (Highlander)
+- Are two-player exclusive (Breathing Room)
+
+### Fixed Weapon Starts
+
+Unlike Survival, quests specify exact starting weapons. Examples:
+- Quest 1: Pistol only
+- Quest 5: Shotgun
+- Quest 15: Plasma Rifle
+- Quest 45: Random weapon
+
+### Special Quest Types
+
+**Weapon Introduction Quests**: Feature a new weapon type to teach its mechanics.
+
+**Survival Timer Quests**: Must survive X seconds rather than kill Y enemies.
+
+**No Bonuses Quests**: Disable power-up drops for pure combat challenge.
+
+**Plague Suppression Quest**: Quest 2.10 (hardcore) disables the Plaguebearer perk entirely due to balance concerns.
+
+## Progression and Unlocks
+
+### Weapon Unlocks
+
+Completing specific quests unlocks weapons for Survival mode. The unlock system ensures players access more powerful weapons by completing harder quests.
+
+**Unlock Checkpoints**:
+- Basic weapons: Unlocked early (Quests 1-15)
+- Plasma weapons: Mid-game unlocks (Quests 16-30)
+- Ion weapons: Late-game (Quests 31-45)
+- Secret weapons: Special conditions
+
+### Chapter Gating
+
+Later chapters require completing earlier quests. You cannot skip ahead without finishing prerequisite missions.
+
+## Difficulty Tuning
+
+### Enemy Density
+
+Quests carefully control enemy count:
+- Early quests: 10-30 enemies max
+- Mid quests: 50-100 enemies
+- Late quests: 150+ enemies simultaneously
+
+### Spawn Timing
+
+Unlike Survival's continuous escalation, quests use scripted spawn waves:
+- Initial spawn burst
+- Timed reinforcements
+- Boss waves
+- Final cleanup phase
+
+### Health and Damage
+
+Quest enemies may have modified HP/damage compared to Survival equivalents. Hardcore quests frequently feature buffed enemies.
+
+## Notable Quests
+
+### Quest 1: "Welcome to Crimsonland"
+
+**Objective**: Kill 15 zombies
+**Weapon**: Pistol
+**Perks**: Limited selection
+
+Introductory mission teaching basic movement and shooting.
+
+### Quest 2.10: "Plague Spreaders" (Hardcore)
+
+**Objective**: Survive plague-carrying enemies
+**Restriction**: Plaguebearer perk disabled
+**Difficulty**: High
+
+From `src/crimson/perks/availability.py` - special case suppression.
+
+### Quest 6.10: Final Mission
+
+**Objective**: Survive maximum difficulty
+**Enemies**: All creature types
+**Duration**: Extended
+
+Final challenge requiring mastery of all mechanics.
+
+## Strategy Considerations
+
+### Perk Priority in Quests
+
+Since quests have defined endpoints, prioritize:
+
+**Short-Term Power**:
+- Fastshot (immediate DPS)
+- Uranium Filled Bullets (2x damage)
+- Ammo Maniac (25% more clip)
+
+**Avoid Long-Term Perks**:
+- Regeneration (quests end quickly)
+- Lean Mean Exp Machine (limited levels)
+- Long Distance Runner (maps are small)
+
+### Weapon Mastery
+
+Learn each weapon's optimal range and target count:
+- Shotguns: Close range, grouped enemies
+- Plasma Rifle: Mid-range single targets
+- Gauss Gun: Long range, linear crowds
+
+### Resource Management
+
+Quests often limit bonus drops. Conserve powerful bonuses (Nuke, Energizer) for difficult spawn waves.
+
+## Completion Rewards
+
+**Per-Quest Rewards**:
+- XP towards overall progression
+- Weapon unlocks
+- Next quest unlocked
+
+**Chapter Completion**:
+- Achievement/milestone tracking
+- Access to next chapter
+
+**100% Completion**:
+- All weapons unlocked
+- Access to secret weapons
+- Hardcore mode mastery
+
+## Tips for Quest Mode
+
+<Tip>
+**Restart Freely**: Unlike Survival, quests are short. Restart if you get bad RNG or perk choices.
+</Tip>
+
+<Tip>
+**Learn Spawn Points**: Enemies spawn at screen edges. Position yourself to maximize coverage.
+</Tip>
+
+<Tip>
+**Save Ultimate Bonuses**: Hold Nuke and Energizer for the final wave or when overwhelmed.
+</Tip>
+
+<Warning>
+Hardcore quests (Chapter 6) are significantly harder than earlier content. Expect to retry multiple times.
+</Warning>
+
+## Differences from Survival
+
+| Feature | Quest Mode | Survival Mode |
+|---------|------------|---------------|
+| Duration | Fixed (2-5 min) | Endless |
+| Starting Weapon | Quest-specific | Always Pistol |
+| Perk Pool | Restricted | Full (58 perks) |
+| Objective | Kill quota or timer | Survive infinitely |
+| Difficulty | Static per quest | Continuous escalation |
+| Weapon Unlocks | Quest rewards | Random drops |
+
+## Related Documentation
+
+- [Survival Mode](/mechanics/modes/survival) - Endless mode comparison
+- [Perks System](/mechanics/combat/perks) - Available perks in quest mode
+- [Weapons](/mechanics/combat/weapons) - Weapon stats for quest loadouts
+
+## Source Code References
+
+- `src/crimson/modes/quest_mode.py` - Quest mode implementation
+- `src/crimson/quest_level.py` - Quest configuration and loading
+- `src/crimson/perks/availability.py` - Quest perk filtering
+- `src/crimson/game_modes.py:12` - Mode ID definition

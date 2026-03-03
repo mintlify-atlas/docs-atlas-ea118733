@@ -1,0 +1,243 @@
+---
+title: Module Map
+description: Two-package split - Grim (engine) vs Crimson (game logic)
+---
+
+The rewrite uses a clean two-package architecture under `src/`:
+
+- **`src/grim/`** — Engine/platform layer (raylib wrapper, assets, rendering helpers)
+- **`src/crimson/`** — Game layer (modes, simulation, UI, persistence, data tables)
+
+This mirrors the original `grim.dll` vs `crimsonland.exe` boundary while staying idiomatic for Python.
+
+## Design Principles
+
+<Note>
+  **Import Rule**: `grim` must not import `crimson`. The game layer can import engine helpers, but not vice versa.
+</Note>
+
+1. `grim` should not import `crimson`
+2. `crimson` can import `grim` helpers
+3. Keep raylib calls confined to `grim` as much as practical
+4. Prefer small moves that preserve working entrypoints
+5. No compatibility re-exports or stubs when moving modules
+
+## Grim Module (Engine Layer)
+
+Location: `src/grim/`
+
+### Core Subsystems
+
+| Module | Purpose | Key Files |
+|--------|---------|----------|
+| **Window/Loop** | Window init, main loop, FPS, view protocol | `app.py`, `view.py` |
+| **Assets** | PAQ/JAZ decoders, texture cache | `paq.py`, `jaz.py`, `assets.py` |
+| **Input** | Keyboard/mouse/gamepad wrapper | `input.py` |
+| **Rendering** | Terrain renderer, geometry helpers | `terrain_render.py`, `geom.py`, `color.py` |
+| **Audio** | Music/SFX playback | `audio.py`, `music.py`, `sfx.py`, `sfx_map.py` |
+| **Config** | `crimson.cfg` persistence | `config.py` |
+| **Console** | Debug console overlay | `console.py` |
+| **Fonts** | Font loaders and text rendering | `fonts/small.py`, `fonts/grim_mono.py` |
+| **Math** | Geometry primitives | `math.py`, `geom.py` |
+| **Random** | RNG wrapper | `rand.py` |
+
+### Example: Terrain Rendering
+
+```python src/grim/terrain_render.py
+from grim.raylib_api import rl
+
+class GroundRenderer:
+    """Pure render pipeline for terrain.
+    Game logic selects params, this draws."""
+    
+    def render_to_target(
+        self,
+        *,
+        terrain_id: int,
+        scroll_u: float,
+        scroll_v: float,
+        width: int,
+        height: int,
+    ) -> rl.RenderTexture:
+        # Render terrain with UV scrolling
+        ...
+```
+
+## Crimson Module (Game Layer)
+
+Location: `src/crimson/`
+
+### Core Subsystems
+
+| Module | Purpose | Key Files |
+|--------|---------|----------|
+| **CLI** | Command-line interface | `cli/root.py`, `cli/replay.py` |
+| **Game Flow** | State machine, boot sequence | `game/__init__.py`, `demo.py` |
+| **Modes** | Gameplay mode implementations | `modes/survival_mode.py`, `modes/rush_mode.py`, etc. |
+| **Simulation** | Deterministic world state | `sim/world_state.py`, `sim/step_pipeline.py` |
+| **Gameplay** | Player update, weapon handling | `gameplay.py`, `weapon_runtime.py` |
+| **Creatures** | AI, animations, spawning | `creatures/ai.py`, `creatures/runtime.py` |
+| **Projectiles** | Projectile pools and updates | `projectiles/runtime.py`, `projectiles/types.py` |
+| **Bonuses** | Pickup logic and effects | `bonuses/apply.py`, `bonuses/pool.py` |
+| **Perks** | Perk runtime architecture | `perks/runtime/manifest.py`, `perks/impl/*` |
+| **Quests** | Quest builders (tiers 1-5) | `quests/tier1.py`, `quests/runtime.py` |
+| **Tutorial** | Tutorial stage progression | `tutorial/stages.py`, `tutorial/hints.py` |
+| **Typ-o** | Typing mechanics | `typo/target_matching.py` |
+| **Networking** | Rollback netplay, lockstep | `net/rollback.py`, `net/lan_lockstep.py` |
+| **Replay** | Deterministic replay system | `replay/codec.py`, `replay/recorder.py` |
+| **UI** | HUD, menus, panels | `ui/hud.py`, `frontend/menu.py` |
+| **Persistence** | Save files, high scores | `persistence/save_status.py` |
+| **Audio Routing** | Gameplay audio events | `audio_router.py`, `weapon_sfx.py` |
+| **Data Tables** | Weapons, perks, creatures | `weapons.py`, `perks/ids.py` |
+
+### Example: Game Mode Structure
+
+```python src/crimson/modes/survival_mode.py
+from grim.view import View
+from crimson.game_world import GameWorld
+from crimson.sim.sessions import SurvivalDeterministicSession
+
+class SurvivalMode:
+    """Survival game mode implementation."""
+    
+    def __init__(self, world: GameWorld):
+        self.world = world
+        self.session = SurvivalDeterministicSession(
+            world=world.world_state,
+            options=...,
+        )
+    
+    def update(self, dt: float) -> None:
+        # Run deterministic step
+        result = self.session.step_tick(
+            dt=dt,
+            inputs=self.collect_inputs(),
+        )
+        # Apply presentation
+        self.world.apply_presentation(result)
+```
+
+## Module Organization
+
+### Simulation Layer
+
+The deterministic simulation core lives in `src/crimson/sim/`:
+
+```
+sim/
+  world_state.py          # Core world state container
+  step_pipeline.py        # Deterministic tick contract
+  sessions.py             # Mode-specific session adapters
+  input_frame.py          # Multiplayer input normalization
+  presentation_step.py    # Deterministic presentation planning
+  timing.py               # Frame timing helpers
+  driver/                 # Replay runners
+    replay_runner.py      # Headless verification
+    replay_info.py        # Timeline extraction
+```
+
+### Perks Architecture
+
+Perks are split into three layers (see [Perks Module](/rewrite/modules/perks)):
+
+```
+perks/
+  ids.py                  # Perk IDs and metadata
+  availability.py         # Selection logic
+  state.py                # Runtime state
+  impl/                   # One file per perk
+    instant_winner.py
+    final_revenge.py
+    ...
+  runtime/                # Dispatch orchestration
+    manifest.py           # Canonical registry
+    hook_types.py         # Hook contracts
+    apply.py              # Apply-time dispatcher
+    effects.py            # Frame effects dispatcher
+```
+
+<Warning>
+  **No circular imports**: `impl` and `runtime` must not import `availability` or `selection`. Keep registration centralized in `runtime/manifest.py`.
+</Warning>
+
+## Prefix Map (Decompile → Rewrite)
+
+Original binary prefix clusters map to rewrite packages:
+
+| Original Prefix | Rewrite Package |
+|-----------------|----------------|
+| `grim_*` | `grim.*` (graphics/input/audio/assets) |
+| `resource_*`, `buffer_reader_*` | `grim.paq`, `grim.assets` |
+| `console_*` | `grim.console` |
+| `ui_*`, `hud_*` | `crimson.ui.*` |
+| `quest_*`, `survival_*`, `rush_*` | `crimson.modes.*` |
+| `player_*`, `creature_*`, `projectile_*` | `crimson.sim.*`, `crimson.gameplay` |
+| `weapon_*`, `perk_*` | `crimson.weapons`, `crimson.perks.*` |
+| `bonus_*`, `effect_*`, `fx_*` | `crimson.bonuses.*`, `crimson.effects` |
+| `highscore_*` | `crimson.persistence.*` |
+
+## File Locations
+
+Key entry points and their locations:
+
+<AccordionGroup>
+  <Accordion title="Game Entry Points">
+    - `src/crimson/cli/root.py` — Main CLI (`crimson` command)
+    - `src/crimson/game/__init__.py` — Game flow state machine
+    - `src/crimson/demo.py` — Demo/attract mode
+  </Accordion>
+  
+  <Accordion title="Simulation Core">
+    - `src/crimson/sim/world_state.py` — World step logic
+    - `src/crimson/sim/step_pipeline.py` — Deterministic pipeline
+    - `src/crimson/sim/sessions.py` — Mode session adapters
+  </Accordion>
+  
+  <Accordion title="Rendering">
+    - `src/grim/terrain_render.py` — Terrain rendering
+    - `src/crimson/render/world/` — World sprite rendering
+    - `src/crimson/ui/hud.py` — HUD overlay
+  </Accordion>
+  
+  <Accordion title="Assets">
+    - `src/grim/paq.py` — PAQ archive reader
+    - `src/grim/jaz.py` — JAZ texture decoder
+    - `src/grim/assets.py` — Texture cache
+  </Accordion>
+</AccordionGroup>
+
+## Import Boundaries
+
+The project uses `import-linter` to enforce architectural boundaries:
+
+```python
+# ✅ Good: Game imports engine
+from grim.assets import TextureCache
+from grim.raylib_api import rl
+
+# ❌ Bad: Engine imports game
+from crimson.gameplay import player_update  # Not allowed in grim/
+
+# ✅ Good: Impl declares hooks
+from crimson.perks.runtime.hook_types import PerkHooks
+
+# ❌ Bad: Impl imports selection
+from crimson.perks.availability import perks_rebuild_available  # Not allowed in impl/
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Game Loop" icon="rotate" href="/rewrite/architecture/game-loop">
+    Understand the frame pipeline
+  </Card>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    Learn about the step contract
+  </Card>
+  <Card title="Crimson Module" icon="gamepad" href="/rewrite/modules/crimson">
+    Dive into game logic
+  </Card>
+  <Card title="Grim Module" icon="engine" href="/rewrite/modules/grim">
+    Explore the engine layer
+  </Card>
+</CardGroup>

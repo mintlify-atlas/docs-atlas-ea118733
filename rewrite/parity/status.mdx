@@ -1,0 +1,302 @@
+---
+title: Parity Status
+description: Current rewrite parity state vs original v1.9.93
+---
+
+This page tracks the current parity state of the Python + raylib rewrite against the original Windows build (Crimsonland v1.9.93).
+
+**Last reviewed:** 2026-02-24
+
+## What Works Today
+
+<Check>
+  **Full gameplay** — All modes playable (Survival, Rush, Quests, Tutorial, Typ-o-Shooter)
+</Check>
+<Check>
+  **Complete content** — All weapons, perks, creatures, and quests
+</Check>
+<Check>
+  **Deterministic simulation** — Seeded runs and replay verification
+</Check>
+<Check>
+  **Multiplayer** — Local 2-4 players + online rollback netcode
+</Check>
+<Check>
+  **Bug fixes** — 17+ original bugs fixed (re-enable with `--preserve-bugs`)
+</Check>
+
+## Parity Verification Methods
+
+The project uses multiple strategies to verify behavioral parity:
+
+### 1. Static Analysis
+
+<AccordionGroup>
+  <Accordion title="Ghidra Decompilation">
+    Source of truth for structure and behavior:
+    
+    - Name/type maps in `analysis/ghidra/maps/`
+    - Raw decompiles in `analysis/ghidra/raw/`
+    - Function signatures and struct layouts
+  </Accordion>
+  
+  <Accordion title="Binary Ninja Analysis">
+    High-level IL for complex expressions:
+    
+    - Float precision detection (`fconvert.t`, `fconvert.s`)
+    - Control flow patterns
+    - Cross-references
+  </Accordion>
+</AccordionGroup>
+
+### 2. Runtime Evidence
+
+<AccordionGroup>
+  <Accordion title="Frida Captures">
+    Live instrumentation of original exe:
+    
+    - State snapshots at specific ticks
+    - RNG traces
+    - Function call traces
+    - Memory dumps
+    
+    Evidence: `analysis/frida/`
+  </Accordion>
+  
+  <Accordion title="WinDbg Sessions">
+    Interactive debugging:
+    
+    - Breakpoint analysis
+    - Memory inspection
+    - Register state
+    
+    Logs: `analysis/windbg/`
+  </Accordion>
+</AccordionGroup>
+
+### 3. Differential Testing
+
+<AccordionGroup>
+  <Accordion title="Structural Trace Comparison">
+    Field-by-field state comparison:
+    
+    ```bash
+    # Capture original
+    uv run scripts/frida/gameplay_diff_capture_host.py
+    
+    # Record rewrite
+    uv run crimson dbg record replay.crd --impl python
+    
+    # Compare
+    uv run crimson dbg diff original.cdt rewrite.cdt
+    ```
+    
+    Format: `.cdt` (Crimson Differential Trace)
+  </Accordion>
+  
+  <Accordion title="Replay Checkpoints">
+    Snapshot-based verification:
+    
+    ```bash
+    uv run crimson replay verify-checkpoints replay.crd
+    ```
+    
+    Compares:
+    - Command hash (presentation)
+    - State hash (simulation)
+    - Per-field details
+  </Accordion>
+</AccordionGroup>
+
+### 4. Fixture Tests
+
+Known-good outputs from original:
+
+```python
+def test_ground_renderer_parity():
+    # Compare terrain output pixel-by-pixel
+    expected = load_fixture("terrain_0_0_0.bin")
+    actual = render_terrain(terrain_id=0, scroll_u=0, scroll_v=0)
+    assert actual == expected
+```
+
+See: `tests/test_ground_dump_fixtures.py`
+
+## Coverage Status
+
+### Front-End (Menus)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Main menu | ✅ Complete | Layout, animations, terrain |
+| Play Game panel | ✅ Complete | Mode select, player count |
+| Quest select | ✅ Complete | All tiers, hardcore toggle |
+| Options panel | ⚠️ Partial | Sliders + controls; no display mode editing |
+| Statistics hub | ✅ Complete | High scores, databases, credits |
+| Demo/attract | ✅ Complete | Variant sequencing, upsell |
+| Mods menu | 🚫 Out of scope | UI only, no DLL loading |
+
+### Gameplay Modes
+
+| Mode | Status | Notes |
+|------|--------|-------|
+| Survival | ✅ Complete | Endless waves, XP/perks |
+| Rush | ✅ Complete | Timed scoring |
+| Quests (1-5) | ✅ Complete | All tiers, spawn scripts |
+| Tutorial | ✅ Complete | Stage progression, hints |
+| Typ-o-Shooter | ✅ Complete | Typing mechanics |
+
+### Core Systems
+
+| System | Status | Parity Validation |
+|--------|--------|-------------------|
+| Player movement | ✅ Complete | Differential captures |
+| Weapon firing | ✅ Complete | Shot counts match |
+| Reload system | ✅ Complete | Timer precision verified |
+| Creature AI | ⚠️ High | Edge cases in progress |
+| Projectiles | ✅ Complete | Hit detection matches |
+| Collision | ✅ Complete | Radius checks verified |
+| Bonus system | ✅ Complete | Drop rates match |
+| Perk system | ✅ Complete | Effects verified |
+| Progression | ✅ Complete | XP/level thresholds |
+| Terrain | ✅ Complete | Pixel-perfect fixtures |
+
+### Multiplayer
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Local 2-4 player | ✅ Complete | Input frame normalization |
+| Rollback netcode | ✅ Complete | Protocol v5 with resync |
+| Lockstep fallback | ✅ Complete | LAN compatibility |
+| Relay server | ✅ Complete | Room codes, NAT traversal |
+
+### Assets & Rendering
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| PAQ loading | ✅ Complete | Archive reader |
+| JAZ decoder | ✅ Complete | Texture format |
+| Terrain render | ✅ Complete | Fixture-verified |
+| Sprite render | ✅ Complete | Atlas-based |
+| Decal baking | ✅ Complete | FX queues |
+| HUD overlay | ✅ Complete | Layout matches |
+
+### Audio
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Music playback | ✅ Complete | Theme + 5 game tunes |
+| SFX system | ✅ Complete | Variant selection |
+| Audio routing | ✅ Complete | Event-based |
+| Volume control | ✅ Complete | From crimson.cfg |
+| Reflex Boost pitch | ✅ Complete | Time-scaled SFX |
+
+### Persistence
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| crimson.cfg | ✅ Complete | Config persistence |
+| game.cfg | ⚠️ High | Core fields verified |
+| High scores | ✅ Complete | Per-mode tables |
+| Replays (.crd) | ✅ Complete | Recording + verification |
+
+## Known Gaps
+
+### 1. Options Panel Display Settings
+
+<Warning>
+  In-game options do not currently edit:
+  - `screen_width` / `screen_height`
+  - `windowed_flag`
+  - `screen_bpp`
+  - `texture_scale`
+  
+  These are managed via `crimson.cfg` and CLI, not the state-2 panel.
+</Warning>
+
+### 2. Deep Creature AI Edge Cases
+
+<Note>
+  Most creature behaviors match. Remaining gaps are specific edge cases being validated via differential captures.
+</Note>
+
+### 3. Rollback Stress Testing
+
+Rollback is primary netcode, but extreme packet impairment scenarios need broader coverage:
+
+- Loss/reorder/jitter extremes
+- Long session stability
+- Reconnect/resync under stress
+
+## Out of Scope
+
+These features are **intentionally not implemented**:
+
+<AccordionGroup>
+  <Accordion title="Native DLL Mods">
+    The Python rewrite does not support loading/executing original DLL mods.
+    
+    **Rationale:** Not practical in Python architecture.
+  </Accordion>
+  
+  <Accordion title="Other Games / Shareware Ads">
+    Shareware ad flows are not part of the parity target.
+    
+    **Rationale:** Out of scope for game preservation.
+  </Accordion>
+  
+  <Accordion title="Native Online Score Submission">
+    Local high scores are supported, but not original online submission.
+    
+    **Direction:** Use headless verification for score legitimacy instead.
+  </Accordion>
+</AccordionGroup>
+
+## Differential Session Tracking
+
+Active parity probes and per-capture outcomes are tracked in:
+
+- **`docs/frida/differential-sessions.md`** — Session index
+- **`docs/frida/differential-sessions/session-*.md`** — Per-session details
+
+Recent sessions focus on:
+
+- Float32 spill points in creature movement
+- Tau-boundary angle handling
+- Per-weapon projectile behavior
+
+## Verification Commands
+
+```bash
+# Run test suite (200+ tests)
+uv run pytest
+
+# Verify replay
+uv run crimson replay verify replay.crd
+
+# Check replay with checkpoints
+uv run crimson replay verify-checkpoints replay.crd
+
+# Differential trace comparison
+uv run crimson dbg diff expected.cdt actual.cdt
+
+# Bisect divergence point
+uv run crimson dbg bisect expected.cdt actual.cdt
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Float32 Policy" icon="calculator" href="/rewrite/parity/float-policy">
+    Why float precision matters
+  </Card>
+  <Card title="Original Bugs" icon="bug" href="/rewrite/parity/original-bugs">
+    Bugs fixed in rewrite
+  </Card>
+  <Card title="Deterministic Pipeline" icon="gears" href="/rewrite/architecture/deterministic-pipeline">
+    How parity is enforced
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    Verification tools
+  </Card>
+</CardGroup>

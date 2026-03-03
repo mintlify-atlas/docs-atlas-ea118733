@@ -1,0 +1,139 @@
+---
+title: Reverse Engineering Overview
+description: Complete reverse engineering workflow for Crimsonland 1.9.93
+---
+
+This section documents the complete reverse engineering process used to achieve behavioral parity between the original Crimsonland 1.9.93 binary and the Python reimplementation.
+
+## Approach
+
+The reverse engineering effort combines three complementary methodologies:
+
+1. **Static Analysis** - Ghidra-based decompilation and symbol recovery
+2. **Runtime Validation** - Frida and WinDbg instrumentation for ground truth
+3. **Differential Testing** - Automated parity verification between original and rewrite
+
+## Project Goals
+
+The aim is **behavioral parity**: timings, RNG sequences, float32 math, UI layout quirks, asset decoding, and gameplay rules must match the original as closely as practical.
+
+This includes:
+
+- Deterministic simulation with float32 precision contracts
+- Exact asset format decoding (PAQ archives, JAZ textures)
+- Pixel-perfect UI rendering and layout
+- Matching weapon damage, projectile physics, and creature AI
+- Compatible save file and config formats
+
+## Target Binary
+
+<CardGroup cols={2}>
+  <Card title="crimsonland.exe" icon="file-binary">
+    **Build**: 2011-02-01 07:13:37 UTC  
+    **Compiler**: Visual Studio 2003 (VC++ 7.1 SP1)  
+    **Base**: 0x00400000 (fixed)  
+    **Size**: ~500KB code + 378KB BSS
+  </Card>
+  <Card title="grim.dll" icon="file-binary">
+    **Build**: 2011-02-01 07:25:24 UTC  
+    **Compiler**: Visual Studio 2003 (VC++ 7.1 SP1)  
+    **Base**: 0x10000000 (relocatable)  
+    **Export**: GRIM__GetInterface (Grim2D vtable)
+  </Card>
+</CardGroup>
+
+## Key Challenges
+
+### No Debug Symbols
+
+- PDB stripped, no RTTI
+- All function and variable names must be inferred from usage
+- Class structures reconstructed from vtable analysis
+
+### Float32 Precision
+
+Deterministic gameplay requires matching the original's float32 math exactly:
+
+- x87 FPU instruction sequences
+- Rounding behavior in damage calculations
+- Accumulation order in physics updates
+
+See [Float Parity Policy](/rewrite/parity/float-policy) for implementation details.
+
+### Custom Asset Formats
+
+Proprietary formats with no public documentation:
+
+- **PAQ**: Simple concatenated archive format
+- **JAZ**: JPEG + RLE alpha texture compression
+- Binary config and save files with obfuscation
+
+## Analysis Artifacts
+
+All reverse engineering artifacts live in `analysis/`:
+
+```
+analysis/
+├── ghidra/
+│   ├── maps/              # Source of truth: name_map.json, data_map.json
+│   ├── raw/               # Decompiled C output from Ghidra
+│   └── derived/hotspots/  # Focused function extractions
+├── frida/
+│   ├── raw/              # Runtime capture logs (JSONL)
+│   └── facts.jsonl       # Normalized evidence
+└── windbg/
+    └── sessions/         # Debugger capture notes
+```
+
+## Workflow Summary
+
+<Steps>
+  <Step title="Static Decompilation">
+    Use Ghidra to decompile binaries and identify function boundaries, data structures, and call graphs.
+  </Step>
+  <Step title="Symbol Recovery">
+    Manually name functions and globals based on usage patterns. Store names in `analysis/ghidra/maps/name_map.json`.
+  </Step>
+  <Step title="Runtime Capture">
+    Use Frida to hook key functions and capture actual runtime values (RNG seeds, damage calculations, state snapshots).
+  </Step>
+  <Step title="Struct Mapping">
+    Cross-reference static analysis with runtime traces to recover complete struct layouts (player, creature, projectile pools).
+  </Step>
+  <Step title="Differential Testing">
+    Run original and rewrite side-by-side with identical inputs, compare state at each tick to verify parity.
+  </Step>
+  <Step title="Iteration">
+    Fix divergences, capture new evidence, update maps, regenerate decompiles.
+  </Step>
+</Steps>
+
+## Documentation Structure
+
+<CardGroup cols={2}>
+  <Card title="Methodology" icon="map" href="/reverse-engineering/methodology">
+    Step-by-step reverse engineering process
+  </Card>
+  <Card title="Static Analysis" icon="microscope" href="/reverse-engineering/static/ghidra-workflow">
+    Ghidra decompilation and symbol recovery
+  </Card>
+  <Card title="Runtime Tools" icon="bug" href="/reverse-engineering/runtime/frida-capture">
+    Frida and WinDbg instrumentation
+  </Card>
+  <Card title="File Formats" icon="file-code" href="/reverse-engineering/formats/paq-archives">
+    PAQ, JAZ, config, and save formats
+  </Card>
+  <Card title="Data Structures" icon="database" href="/reverse-engineering/structs/game-state">
+    Recovered struct layouts and pools
+  </Card>
+</CardGroup>
+
+## Related Sections
+
+- [Rewrite Overview](/rewrite/overview) - Implementation details
+- [Differential Testing](/reverse-engineering/runtime/differential-testing) - Parity verification
+- [Game Mechanics](/mechanics/overview) - Gameplay behavior specifications
+
+<Note>
+  The reverse engineering process prioritized **measured parity** over "looks right". Every claim is backed by runtime captures, decompiled code, or differential test results.
+</Note>

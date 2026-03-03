@@ -1,0 +1,320 @@
+---
+title: quests Command
+description: Print quest spawn scripts for debugging
+---
+
+Generate and print spawn scripts for quest levels, including creature spawns, timing, and allocation.
+
+## Usage
+
+```bash
+crimson quests <level> [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="level" type="string" required>
+  Quest level identifier (e.g., `1.1`, `2.3`, `5.10`).
+  
+  Format: `<tier>.<mission>`
+  
+  Example levels:
+  - `1.1` — First quest, tier 1
+  - `2.5` — Fifth quest, tier 2
+  - `5.10` — Final quest, tier 5
+</ParamField>
+
+## Options
+
+<ParamField path="--width" type="int" default="1024">
+  Terrain width in pixels.
+</ParamField>
+
+<ParamField path="--height" type="int" default="1024">
+  Terrain height in pixels.
+</ParamField>
+
+<ParamField path="--player-count" type="int" default="1">
+  Player count for spawn calculation.
+  
+  Affects creature allocation in multiplayer quests.
+</ParamField>
+
+<ParamField path="--seed" type="int">
+  Seed for randomized quests.
+  
+  Some quests use RNG for spawn positions/timing.
+</ParamField>
+
+<ParamField path="--sort" type="flag">
+  Sort output by trigger time.
+  
+  Default: Unsorted (builder order)
+</ParamField>
+
+<ParamField path="--show-plan" type="flag">
+  Include spawn-plan allocation summary.
+  
+  Shows creatures per spawn and slot allocation.
+</ParamField>
+
+## Output Format
+
+```bash
+crimson quests 1.1
+```
+
+Output:
+```
+Quest 1.1 Tutorial (12 entries)
+Meta: time_limit_ms=120000; start_weapon_id=1; unlock_perk_id=0x05 (5); unlock_weapon_id=0x03 (3); builder_address=0x00401234; terrain_ids=[0x01 (1)]
+01  t= 1000  id=0x08 ( 8)  creature=zombie      count= 3  x=  512.0  y=  100.0  heading=  1.571
+02  t= 3000  id=0x12 (18)  creature=spider      count= 2  x=  256.0  y=  512.0  heading=  0.000
+03  t= 5000  id=0x08 ( 8)  creature=zombie      count= 5  x=  768.0  y=  512.0  heading=  3.142
+...
+```
+
+## Columns
+
+<ParamField path="index" type="int">
+  Entry number (1-based).
+</ParamField>
+
+<ParamField path="t" type="int">
+  Trigger time in milliseconds.
+</ParamField>
+
+<ParamField path="id" type="hex">
+  Spawn template ID (hex and decimal).
+</ParamField>
+
+<ParamField path="creature" type="string">
+  Creature type name.
+</ParamField>
+
+<ParamField path="count" type="int">
+  Number of spawns.
+</ParamField>
+
+<ParamField path="x, y" type="float">
+  Spawn position.
+</ParamField>
+
+<ParamField path="heading" type="float">
+  Spawn rotation in radians.
+</ParamField>
+
+## With Spawn Plan
+
+```bash
+crimson quests 1.1 --show-plan
+```
+
+Output:
+```
+Quest 1.1 Tutorial (12 entries)
+Meta: ...
+Plan: total_alloc=45 total_spawn_slots=8
+01  t= 1000  id=0x08 ( 8)  creature=zombie      count= 3  x=  512.0  y=  100.0  heading=  1.571  alloc=  3 (x 1)  slots=0
+02  t= 3000  id=0x12 (18)  creature=spider      count= 2  x=  256.0  y=  512.0  heading=  0.000  alloc=  4 (x 2)  slots=0
+...
+```
+
+Additional columns:
+
+<ParamField path="alloc" type="int">
+  Total creatures allocated (count × creatures_per_spawn).
+</ParamField>
+
+<ParamField path="slots" type="int">
+  Spawn slots (for spawners that create additional waves).
+</ParamField>
+
+## Metadata Fields
+
+<ParamField path="time_limit_ms" type="int">
+  Quest time limit in milliseconds.
+  
+  `-1` = no limit
+</ParamField>
+
+<ParamField path="start_weapon_id" type="int">
+  Starting weapon ID.
+</ParamField>
+
+<ParamField path="unlock_perk_id" type="int|none">
+  Perk unlocked on completion.
+</ParamField>
+
+<ParamField path="unlock_weapon_id" type="int|none">
+  Weapon unlocked on completion.
+</ParamField>
+
+<ParamField path="builder_address" type="hex">
+  Original executable function address.
+  
+  Used for provenance tracking.
+</ParamField>
+
+<ParamField path="terrain_ids" type="list[int]">
+  Valid terrain IDs for this quest.
+</ParamField>
+
+## Examples
+
+### Basic Quest Inspection
+
+```bash
+crimson quests 1.1
+```
+
+### Sorted by Time
+
+```bash
+crimson quests 2.3 --sort
+```
+
+### With Allocation Details
+
+```bash
+crimson quests 3.5 --show-plan
+```
+
+### Randomized Quest
+
+```bash
+crimson quests 4.7 --seed 42
+```
+
+Some quests use RNG for variety. Same seed produces same result.
+
+### Multiplayer Quest
+
+```bash
+crimson quests 5.10 --player-count 4
+```
+
+Spawn counts may scale with player count.
+
+### Custom Terrain Size
+
+```bash
+crimson quests 1.1 --width 2048 --height 2048
+```
+
+Affects spawn positions near terrain edges.
+
+## Error Handling
+
+### Unknown Level
+
+```bash
+crimson quests 99.99
+```
+
+Output:
+```
+unknown level '99.99'. Available: 1.1, 1.2, 1.3, ..., 5.10
+```
+
+Exit code: `1`
+
+## Available Quests
+
+To see all available quests, use an invalid level:
+
+```bash
+crimson quests unknown
+```
+
+Output lists all valid quest levels.
+
+## Use Cases
+
+### Quest Development
+
+Verify spawn scripts during quest design:
+
+```bash
+crimson quests 1.1
+```
+
+### Difficulty Balancing
+
+Analyze spawn density:
+
+```bash
+crimson quests 5.10 --show-plan
+# Check total_alloc for difficulty estimate
+```
+
+### Speedrun Planning
+
+Plan optimal routes based on spawn timing:
+
+```bash
+crimson quests 3.7 --sort > quest-3.7-timeline.txt
+```
+
+### Multiplayer Testing
+
+Check spawn scaling:
+
+```bash
+crimson quests 2.5 --player-count 1 > solo.txt
+crimson quests 2.5 --player-count 4 > coop.txt
+diff solo.txt coop.txt
+```
+
+### Parity Verification
+
+Compare against original game spawns:
+
+```bash
+crimson quests 1.1 --seed 0 > reimpl.txt
+# Compare with captured original game output
+```
+
+## Spawn Plan Details
+
+The `--show-plan` flag shows spawn plan allocation:
+
+- **alloc** — Total creatures created per spawn
+- **slots** — Ongoing spawn slots (for spawners)
+
+Example:
+```
+id=0x12 count=3  alloc=6 (x2)  slots=0
+```
+
+Means:
+- 3 spawns of template 0x12
+- Each spawn creates 2 creatures
+- Total: 6 creatures
+- No ongoing spawn slots
+
+## Quest Builder Functions
+
+Quest spawn scripts are generated by builder functions:
+
+```python
+def build_quest_1_1(ctx: QuestContext) -> list[SpawnEntry]:
+    return [
+        SpawnEntry(
+            trigger_ms=1000,
+            spawn_id=SpawnId.ZOMBIE,
+            count=3,
+            pos=Vec2(512, 100),
+            heading=1.571,
+        ),
+        ...
+    ]
+```
+
+See `crimson/quests/` for implementations.
+
+## See Also
+
+- [Quest Mode](/mechanics/modes/quest) — Play quest missions
+- [Run Command](/cli/run) — Play quests
+- [view Command](/cli/debug/view) — Debug views

@@ -1,0 +1,448 @@
+---
+title: Frida Runtime Capture
+description: Using Frida for dynamic instrumentation and runtime evidence collection
+---
+
+This page documents the Frida-based runtime instrumentation workflow used to capture ground truth from the original Crimsonland binary.
+
+## Overview
+
+[Frida](https://frida.re/) is a dynamic instrumentation toolkit that allows:
+
+- **Function hooking** - Intercept calls and inspect arguments/return values
+- **Memory inspection** - Read struct fields and global state at runtime
+- **Call tracing** - Record function call sequences (RNG, damage calculations)
+- **State capture** - Snapshot game state at specific ticks for differential testing
+
+## Setup
+
+### Installation
+
+```bash
+pip install frida frida-tools
+```
+
+### Attach to Process
+
+Frida scripts run by attaching to the running game:
+
+```bash
+frida -n crimsonland.exe -l script.js
+```
+
+**Important**: Use `-n` (attach by name) instead of spawn. Spawning caused texture crashes in testing.
+
+## Basic Hooking
+
+### Intercepting a Function
+
+```javascript
+// Hook player_update @ 0x004136b0
+const playerUpdateAddr = ptr("0x004136b0");
+
+Interceptor.attach(playerUpdateAddr, {
+  onEnter: function(args) {
+    console.log("player_update called");
+  },
+  onLeave: function(retval) {
+    console.log("player_update returned");
+  }
+});
+```
+
+### Reading Memory
+
+```javascript
+// Read player health (float at 0x004908d4)
+const playerHealthAddr = ptr("0x004908d4");
+const health = playerHealthAddr.readFloat();
+console.log(`Player health: ${health}`);
+```
+
+### Writing Memory
+
+```javascript
+// God mode: Set health to 999
+playerHealthAddr.writeFloat(999.0);
+```
+
+## Capture Scripts
+
+The `scripts/frida/` directory contains specialized instrumentation scripts:
+
+### gameplay_diff_capture.js
+
+Tick-aligned state capture for differential testing:
+
+```javascript
+// Captures:
+// - Player position, health, weapon state
+// - Creature pool (active entries, positions, health)
+// - Projectile pool (active entries, positions, types)
+// - RNG call sequences
+
+// Hook game tick
+Interceptor.attach(ptr("0x00402d10"), {  // gameplay_update
+  onEnter: function() {
+    captureState();
+  }
+});
+
+function captureState() {
+  const state = {
+    tick: tickCounter++,
+    player: capturePlayer(),
+    creatures: captureCreatures(),
+    projectiles: captureProjectiles(),
+    rng_calls: rngCallCount
+  };
+  
+  logEvent("state_snapshot", state);
+}
+```
+
+**Output**: `gameplay_diff_capture.json` with tick-by-tick state.
+
+### grim_hooks.js
+
+Grim2D engine call tracing:
+
+```javascript
+// Hook all Grim vtable functions
+const grimVtable = ptr("0x1004c238");
+
+for (let i = 0; i < 84; i++) {
+  const funcPtr = grimVtable.add(i * 4).readPointer();
+  
+  Interceptor.attach(funcPtr, {
+    onEnter: function(args) {
+      console.log(`Grim[${i}] called`);
+    }
+  });
+}
+```
+
+**Use case**: Identify unknown Grim2D functions by index.
+
+### survival_autoplay.js
+
+Automated gameplay for unattended capture runs:
+
+```javascript
+// Override input state for static movement + computer aim
+const inputScheme = ptr("0x00480364");
+inputScheme.writeU32(2);  // Static movement
+
+const aimScheme = ptr("0x0048038c");
+aimScheme.writeU32(4);  // Computer aim
+
+console.log("Autoplay enabled: static move + AI aim");
+```
+
+**Use case**: Record long Survival runs without manual input.
+
+## Evidence Collection Patterns
+
+### RNG Call Tracing
+
+```javascript
+let rngCallCount = 0;
+const rngCalls = [];
+
+Interceptor.attach(ptr("0x00461746"), {  // crt_rand
+  onLeave: function(retval) {
+    const value = retval.toInt32();
+    rngCallCount++;
+    rngCalls.push({call: rngCallCount, value: value});
+    
+    if (rngCallCount % 100 === 0) {
+      console.log(`RNG call ${rngCallCount}: ${value}`);
+    }
+  }
+});
+```
+
+**Why**: Verify rewrite uses identical RNG call order.
+
+### Damage Calculation Validation
+
+```javascript
+Interceptor.attach(ptr("0x004207c0"), {  // creature_apply_damage
+  onEnter: function(args) {
+    const creatureIdx = args[0].toInt32();
+    const damage = args[1].toFloat();
+    
+    const creatureBase = ptr("0x0048d0a8");
+    const entry = creatureBase.add(creatureIdx * 0x98);
+    const healthBefore = entry.add(0x10).readFloat();
+    
+    this.creatureIdx = creatureIdx;
+    this.damage = damage;
+    this.healthBefore = healthBefore;
+  },
+  onLeave: function(retval) {
+    const entry = ptr("0x0048d0a8").add(this.creatureIdx * 0x98);
+    const healthAfter = entry.add(0x10).readFloat();
+    
+    console.log(`Creature ${this.creatureIdx}:`);
+    console.log(`  damage: ${this.damage}`);
+    console.log(`  health: ${this.healthBefore} -> ${healthAfter}`);
+  }
+});
+```
+
+**Output**:
+```
+Creature 5:
+  damage: 15.0
+  health: 30.0 -> 15.0
+```
+
+### Pool Iteration
+
+```javascript
+function captureProjectiles() {
+  const pool = ptr("0x004926b8");
+  const entries = [];
+  
+  for (let i = 0; i < 0x60; i++) {
+    const entry = pool.add(i * 0x40);
+    const active = entry.readU8();
+    
+    if (active) {
+      entries.push({
+        index: i,
+        type: entry.add(0x20).readS32(),
+        pos_x: entry.add(0x08).readFloat(),
+        pos_y: entry.add(0x0c).readFloat(),
+        life_timer: entry.add(0x24).readFloat()
+      });
+    }
+  }
+  
+  return entries;
+}
+```
+
+## Workflow
+
+### 1. Instrument and Run
+
+Attach script and play the game:
+
+```bash
+cd /mnt/c/share/frida
+frida -n crimsonland.exe -l gameplay_diff_capture.js
+```
+
+Script writes to `C:\share\frida\gameplay_diff_capture.json`.
+
+### 2. Copy Logs to Repo
+
+```bash
+mkdir -p analysis/frida/raw
+cp /mnt/c/share/frida/*.json analysis/frida/raw/
+```
+
+### 3. Reduce to Evidence
+
+Normalize captures into machine-readable facts:
+
+```bash
+uv run scripts/frida_reduce.py \
+  --log analysis/frida/raw/gameplay_diff_capture.json \
+  --out-dir analysis/frida
+```
+
+**Output**:
+- `analysis/frida/facts.jsonl` - Normalized evidence
+- `analysis/frida/evidence_summary.json` - Per-function call counts
+- `analysis/frida/name_map_candidates.json` - Suggested symbol names
+
+### 4. Promote to Maps
+
+Review candidates and merge into authoritative maps:
+
+```bash
+# Manually edit:
+analysis/ghidra/maps/name_map.json
+analysis/ghidra/maps/data_map.json
+
+# Reapply to Ghidra:
+just ghidra-exe
+```
+
+## Advanced Techniques
+
+### Conditional Breakpoints
+
+```javascript
+Interceptor.attach(ptr("0x00420b90"), {  // projectile_update
+  onEnter: function() {
+    const pool = ptr("0x004926b8");
+    
+    // Only log when specific projectile is active
+    const proj5 = pool.add(5 * 0x40);
+    if (proj5.readU8() !== 0) {
+      const type = proj5.add(0x20).readS32();
+      if (type === 0x2d) {  // Fire projectile
+        console.log("Fire projectile active at index 5");
+      }
+    }
+  }
+});
+```
+
+### Backtraces
+
+```javascript
+Interceptor.attach(ptr("0x00461746"), {  // crt_rand
+  onEnter: function() {
+    console.log("RNG call from:");
+    console.log(Thread.backtrace(this.context).map(DebugSymbol.fromAddress).join("\n"));
+  }
+});
+```
+
+**Output**:
+```
+RNG call from:
+0x00420b90 projectile_update+0x150
+0x00402d10 gameplay_update+0x420
+0x00401234 game_loop+0x80
+```
+
+### Unknown Field Discovery
+
+```javascript
+// Watch player struct for frequently-changing fields
+const playerBase = ptr("0x004908d4");
+const prevValues = {};
+
+setInterval(() => {
+  for (let offset = 0; offset < 0x360; offset += 4) {
+    const addr = playerBase.add(offset);
+    const value = addr.readFloat();
+    
+    if (prevValues[offset] !== value) {
+      console.log(`Offset 0x${offset.toString(16)}: ${prevValues[offset]} -> ${value}`);
+      prevValues[offset] = value;
+    }
+  }
+}, 100);
+```
+
+**Use case**: Identify unknown timer/state fields by watching for changes.
+
+## Output Formats
+
+### JSONL (JSON Lines)
+
+One JSON object per line:
+
+```json
+{"event": "player_damage", "tick": 347, "damage": 5.0, "health": 95.0}
+{"event": "projectile_spawn", "tick": 348, "type": 1, "owner": -100}
+{"event": "rng_call", "tick": 348, "value": 12345}
+```
+
+**Advantages**: 
+- Streamable (process line-by-line)
+- Appendable (no array wrapper)
+- Grep-friendly
+
+### Structured JSON
+
+Full state snapshots:
+
+```json
+{
+  "tick": 1000,
+  "player": {
+    "health": 85.0,
+    "pos": [432.5, 300.0],
+    "weapon_id": 6
+  },
+  "creatures": [
+    {"index": 0, "type": 3, "health": 20.0},
+    {"index": 2, "type": 5, "health": 50.0}
+  ]
+}
+```
+
+## Just Shortcuts
+
+Common capture workflows:
+
+```bash
+# Differential capture (tick-aligned state)
+just frida-gameplay-diff-capture
+
+# Survival autoplay mode
+just frida-survival-autoplay
+
+# UI state sweep (all resolutions/panels)
+just frida-panel-state-resolution-sweep
+
+# Import all raw logs to repo
+just frida-import-raw
+
+# Reduce logs to evidence
+just frida-reduce
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Frida fails to attach">
+    **Symptom**: `Failed to attach: process not found`
+
+    **Solution**: Ensure game is running first, then attach:
+    ```bash
+    # Start game manually
+    # Wait for main menu
+    frida -n crimsonland.exe -l script.js
+    ```
+  </Accordion>
+
+  <Accordion title="Texture corruption after spawn">
+    **Symptom**: Black screen or crashed textures
+
+    **Solution**: Use `-n` (attach) instead of `-f` (spawn):
+    ```bash
+    # Bad (spawn):
+    frida -f crimsonland.exe -l script.js
+
+    # Good (attach):
+    frida -n crimsonland.exe -l script.js
+    ```
+  </Accordion>
+
+  <Accordion title="Script output not saved">
+    **Symptom**: Console output disappears on detach
+
+    **Solution**: Log to file in script:
+    ```javascript
+    const logFile = new File("C:\\share\\frida\\output.jsonl", "w");
+    
+    function logEvent(event, data) {
+      logFile.write(JSON.stringify({event, ...data}) + "\n");
+      logFile.flush();
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="WinDbg Debugging" href="/reverse-engineering/runtime/windbg-debugging">
+    Complementary debugger-based inspection
+  </Card>
+  <Card title="Differential Testing" href="/reverse-engineering/runtime/differential-testing">
+    Using captures to verify rewrite parity
+  </Card>
+  <Card title="Struct Recovery" href="/reverse-engineering/static/struct-recovery">
+    Cross-referencing runtime data with static analysis
+  </Card>
+</CardGroup>

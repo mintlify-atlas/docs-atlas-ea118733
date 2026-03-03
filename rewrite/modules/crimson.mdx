@@ -1,0 +1,303 @@
+---
+title: Crimson Module
+description: Game logic layer - modes, simulation, UI, and persistence
+---
+
+The Crimson module (`src/crimson/`) contains all game logic: gameplay modes, deterministic simulation, UI, persistence, and data tables.
+
+## Package Structure
+
+```
+src/crimson/
+  ├── cli/                # Command-line interface
+  ├── game/               # Game flow state machine
+  ├── modes/              # Gameplay modes (Survival, Rush, Quest, etc.)
+  ├── sim/                # Deterministic simulation core
+  ├── gameplay.py         # Player update logic
+  ├── creatures/          # Creature AI and runtime
+  ├── projectiles/        # Projectile pools and updates
+  ├── bonuses/            # Bonus pickups and effects
+  ├── perks/              # Perk system
+  ├── quests/             # Quest builders (tiers 1-5)
+  ├── tutorial/           # Tutorial stages
+  ├── typo/               # Typ-o-Shooter mechanics
+  ├── net/                # Networking (rollback + lockstep)
+  ├── replay/             # Replay recording and verification
+  ├── ui/                 # HUD and in-game UI
+  ├── frontend/           # Menus and panels
+  ├── persistence/        # Save files and high scores
+  ├── render/             # Rendering helpers
+  ├── audio_router.py     # Audio event routing
+  ├── weapons.py          # Weapon data table
+  └── game_world.py       # Main game world container
+```
+
+## Core Subsystems
+
+### CLI (Command-Line Interface)
+
+**Location:** `src/crimson/cli/`
+
+The CLI is the main entry point for the game:
+
+```python src/crimson/cli/root.py
+import typer
+
+app = typer.Typer()
+
+@app.command()
+def main(
+    seed: int | None = None,
+    demo: bool = False,
+    preserve_bugs: bool = False,
+):
+    """Run Crimsonland."""
+    from crimson.game import run_game
+    run_game(seed=seed, demo=demo, preserve_bugs=preserve_bugs)
+
+@app.command()
+def replay(
+    action: str,
+    path: Path,
+):
+    """Replay commands (play, verify, info, render)."""
+    ...
+```
+
+### Game Flow
+
+**Location:** `src/crimson/game/`
+
+The game flow state machine manages screens and transitions:
+
+- Splash screen
+- Company logos
+- Main menu
+- Play Game panel
+- Mode selection
+- Gameplay
+- Game over / Results
+
+### Simulation Core
+
+**Location:** `src/crimson/sim/`
+
+The deterministic simulation core:
+
+- **`world_state.py`** — Core world state and step logic
+- **`step_pipeline.py`** — Deterministic tick pipeline
+- **`sessions.py`** — Mode-specific session adapters
+- **`input_frame.py`** — Multiplayer input normalization
+- **`presentation_step.py`** — Deterministic presentation planning
+
+See [Deterministic Pipeline](/rewrite/architecture/deterministic-pipeline).
+
+### Game Modes
+
+**Location:** `src/crimson/modes/`
+
+All gameplay modes:
+
+- **`survival_mode.py`** — Endless wave survival
+- **`rush_mode.py`** — Timed scoring mode
+- **`quest_mode.py`** — Quest missions (5 tiers)
+- **`tutorial_mode.py`** — Tutorial stages
+- **`typo_mode.py`** — Typ-o-Shooter typing game
+- **`replay_playback_mode.py`** — Replay viewer
+
+See [Gameplay System](/rewrite/systems/gameplay).
+
+### Creatures
+
+**Location:** `src/crimson/creatures/`
+
+- **`ai.py`** — Creature AI (pathfinding, targeting)
+- **`anim.py`** — Animation frame selection
+- **`damage.py`** — Damage application and death
+- **`lifecycle.py`** — Spawn and despawn logic
+- **`runtime.py`** — Creature pool management
+- **`spawn.py`** — Spawn templates and builders
+
+### Perks
+
+**Location:** `src/crimson/perks/`
+
+Perk system with three layers:
+
+1. **Metadata** — `ids.py`, `availability.py`, `selection.py`
+2. **Implementation** — `impl/*.py` (one file per perk)
+3. **Runtime** — `runtime/manifest.py`, `runtime/apply.py`
+
+See [Perks Module](/rewrite/modules/perks).
+
+### Networking
+
+**Location:** `src/crimson/net/`
+
+- **Rollback netcode** (primary)
+  - `rollback.py` — Core rollback logic
+  - `rollback_runtime.py` — Network integration
+  - `relay_protocol.py` — UDP relay protocol
+  - `relay_service.py` — Relay server
+- **Lockstep netcode** (fallback)
+  - `lan_protocol.py` — LAN lockstep protocol
+  - `lan_lockstep.py` — Lockstep host/client
+
+### Replay System
+
+**Location:** `src/crimson/replay/`
+
+- **`codec.py`** — Replay encoding/decoding
+- **`recorder.py`** — Recording inputs during gameplay
+- **`types.py`** — Replay file format
+- **`checkpoints.py`** — State checkpoint system
+
+See [Replay Module](/rewrite/modules/replay).
+
+### Persistence
+
+**Location:** `src/crimson/persistence/`
+
+- **`save_status.py`** — `game.cfg` save file
+- **`highscores.py`** — High score tables
+- **`stats.py`** — Statistics tracking
+
+## Data Tables
+
+Game content is defined in Python modules:
+
+### Weapons
+
+**Location:** `src/crimson/weapons.py`
+
+```python
+class WeaponEntry(msgspec.Struct):
+    weapon_id: WeaponId
+    name: str
+    clip_size: int
+    ammo_count: int
+    fire_rate: float
+    projectiles_per_shot: int
+    projectile_type: int
+
+WEAPON_TABLE: dict[WeaponId, WeaponEntry] = {
+    WeaponId.PISTOL: WeaponEntry(...),
+    WeaponId.SHOTGUN: WeaponEntry(...),
+    # ... 40+ weapons
+}
+```
+
+### Perks
+
+**Location:** `src/crimson/perks/ids.py`
+
+```python
+class PerkId(enum.IntEnum):
+    INSTANT_WINNER = 1
+    ANGRY_RELOADER = 2
+    FINAL_REVENGE = 3
+    # ... 50+ perks
+```
+
+### Bonuses
+
+**Location:** `src/crimson/bonuses/ids.py`
+
+```python
+class BonusId(enum.IntEnum):
+    MEDIKIT = 1
+    SPEED = 2
+    WEAPON = 3
+    FIRE_BULLETS = 4
+    # ... all bonuses
+}
+```
+
+### Creatures
+
+**Location:** `src/crimson/creatures/spawn_templates.py`
+
+```python
+class CreatureTemplate(msgspec.Struct):
+    type_id: CreatureTypeId
+    max_health: float
+    speed: float
+    damage: float
+    xp_value: int
+
+CREATURE_TEMPLATES: dict[CreatureTypeId, CreatureTemplate] = {...}
+```
+
+## Key Contracts
+
+### GameWorld
+
+**Location:** `src/crimson/game_world.py`
+
+Main container for active game state:
+
+```python
+class GameWorld(msgspec.Struct):
+    world_state: WorldState      # Sim state
+    players: list[PlayerState]   # Player entities
+    creatures: CreaturePool      # Creature pool
+    state: GameplayState         # Progression/perks/bonuses
+    renderer: WorldRenderer      # Visual rendering
+    audio_router: AudioRouter    # Audio events
+    ground: GroundRenderer       # Terrain
+```
+
+### WorldState
+
+**Location:** `src/crimson/sim/world_state.py`
+
+Deterministic simulation container:
+
+```python
+class WorldState(msgspec.Struct):
+    spawn_env: SpawnEnv
+    state: GameplayState
+    players: list[PlayerState]
+    creatures: CreaturePool
+    
+    def step(
+        self,
+        dt: float,
+        *,
+        inputs: list[PlayerInput],
+        # ...
+    ) -> WorldEvents:
+        """Run one deterministic tick."""
+```
+
+## Import Policy
+
+<Warning>
+  **Crimson can import Grim, but Grim must not import Crimson.**
+</Warning>
+
+```python
+# ✅ Good: Crimson imports Grim
+from grim.assets import TextureCache
+from grim.config import CrimsonConfig
+
+# ❌ Bad: Grim imports Crimson (not allowed)
+from crimson.gameplay import player_update
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Grim Module" icon="engine" href="/rewrite/modules/grim">
+    Engine layer
+  </Card>
+  <Card title="Perks Module" icon="sparkles" href="/rewrite/modules/perks">
+    Perk architecture
+  </Card>
+  <Card title="Replay Module" icon="circle-play" href="/rewrite/modules/replay">
+    Replay system
+  </Card>
+  <Card title="Module Map" icon="diagram-project" href="/rewrite/architecture/module-map">
+    Full architecture
+  </Card>
+</CardGroup>

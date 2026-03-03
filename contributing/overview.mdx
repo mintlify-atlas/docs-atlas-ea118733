@@ -1,0 +1,114 @@
+---
+title: Contributing Overview
+description: Guide to contributing to the Crimsonland reimplementation project
+---
+
+Crimsonland is a reverse engineering and reimplementation project targeting **deterministic, evidence-backed behavioral parity** with the original 1.9.93 (2003) Windows binary.
+
+## Core Priorities
+
+Contributions must align with these priorities in order:
+
+<Steps>
+  <Step title="Deterministic Parity + Evidence-Backed Correctness">
+    If rules conflict, preserve native-faithful behavior and prove it with captures, replays, or deterministic tests.
+  </Step>
+  
+  <Step title="Structural Simplicity">
+    Prefer deleting complexity over adding layers.
+  </Step>
+  
+  <Step title="UX Polish">
+    Only after parity is preserved (unless explicitly required and proven not to change parity-critical behavior).
+  </Step>
+</Steps>
+
+## Project Structure
+
+<CardGroup cols={2}>
+  <Card title="Source Code" icon="code">
+    - `src/crimson/` - Game logic (modes, weapons, perks, creatures, UI, replay)
+    - `src/grim/` - Engine layer (raylib wrapper, PAQ/JAZ decoders, audio, fonts)
+  </Card>
+  
+  <Card title="Analysis" icon="microscope">
+    - `analysis/ghidra/` - Name/type maps (source of truth) and raw decompiles
+    - `analysis/frida/` - Runtime capture evidence (state snapshots, RNG traces)
+    - `analysis/windbg/` - Debugger session logs
+  </Card>
+  
+  <Card title="Documentation" icon="book">
+    - `docs/` - 100+ pages: formats, structs, algorithms, parity tracking
+  </Card>
+  
+  <Card title="Testing" icon="vial">
+    - `tests/` - 200+ tests: gameplay, perks, physics, replay, parity
+    - `scripts/` - 40+ analysis and utility tools
+  </Card>
+</CardGroup>
+
+## Verification Philosophy
+
+<Warning>
+Do **not** rush to claim parity from "it compiles," lint success, or summaries. Verification must use **real artifacts and real pathways** (capture verification, replay verification, deterministic tests).
+</Warning>
+
+### Prove It Works
+
+Every contribution affecting gameplay behavior should include evidence:
+
+- **Capture verification** - Frida captures from original binary compared against rewrite
+- **Replay verification** - Deterministic replay files that produce identical outcomes
+- **Deterministic tests** - Unit/integration tests that lock in discovered behavior
+
+## Key Principles
+
+### f32 Fidelity Over Readability
+
+- Keep decompiled `float32` constants and rounding behavior exactly as-is **when it affects simulation**
+- Do **not** normalize constants like `0.6000000238418579 -> 0.6` unless tests/captures prove no behavioral change
+- Be suspicious of any "cleanup" that changes: float constants, operation ordering, RNG consumption, branch conditions
+
+See [Float Parity Policy](/contributing/guidelines/float-parity) for detailed guidance.
+
+### Validate at Edges, Trust Inside
+
+- **Validate/parse at boundaries** (IO/CLI/JSON/msgpack/network messages)
+- **Inside the domain**, assume validated typed objects are correct: Fail fast on impossible states
+- Do not hide errors with defaults/fallbacks
+- Keep objects **typed during computation**. Convert to dict/builtins **only at edges**
+
+### Types Are Design
+
+- If `ty`/typing complains, **fix the schema/boundary/model**
+- Avoid casting to `Any` or duct-taping with `.get()`/`getattr()` to dodge typing
+
+### Fix Root Causes
+
+- Do not add "just in case" guards to silence crashes/divergences
+- No extra `None` checks, broad tolerances, fallback defaults, epsilons, or off-by-one guards
+- Trace mismatches to bedrock: float rounding/order, misread decompile, wrong table/enum mapping
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" icon="wrench" href="/contributing/setup">
+    Install tools and configure your environment
+  </Card>
+  
+  <Card title="Development Workflow" icon="rotate" href="/contributing/workflow">
+    Learn the contribution workflow and best practices
+  </Card>
+  
+  <Card title="Testing Guide" icon="flask" href="/contributing/dev/testing">
+    Run tests and verify your changes
+  </Card>
+  
+  <Card title="Code Style" icon="paintbrush" href="/contributing/guidelines/code-style">
+    Follow project coding standards
+  </Card>
+</CardGroup>
+
+## Tech Stack
+
+Python 3.13+ · raylib (pyray) · Construct · msgspec · Typer · Ghidra · Frida · WinDbg · pytest · uv

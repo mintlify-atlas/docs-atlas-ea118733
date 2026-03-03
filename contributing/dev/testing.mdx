@@ -1,0 +1,368 @@
+---
+title: Testing
+description: Run and write tests for the Crimsonland project using pytest
+---
+
+The Crimsonland project uses pytest for testing, with 200+ tests covering gameplay, perks, physics, replay, and parity verification.
+
+## Running Tests
+
+### Basic Test Runs
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run specific test file
+uv run pytest tests/test_gameplay.py
+
+# Run specific test
+uv run pytest tests/test_gameplay.py::test_weapon_damage
+
+# Run tests matching pattern
+uv run pytest -k "weapon"
+```
+
+### Using Just Commands
+
+```bash
+# Run all tests (basic)
+just test
+
+# Run with coverage reports
+just test-cov
+
+# Run full verification suite (includes tests)
+just check
+```
+
+### Test Options
+
+<Tabs>
+  <Tab title="Coverage">
+    ```bash
+    # Terminal coverage report
+    uv run pytest --cov=crimson --cov-report=term-missing
+    
+    # HTML + XML reports
+    uv run pytest --cov-report=html --cov-report=xml
+    ```
+    
+    Coverage configuration is in `pyproject.toml`:
+    - Branch coverage enabled
+    - Source: `crimson` package
+    - Omits: `tests/*`
+    - Shows missing lines, skips covered files
+  </Tab>
+  
+  <Tab title="Verbose Output">
+    ```bash
+    # Verbose test output
+    uv run pytest -v
+    
+    # Show print statements
+    uv run pytest -s
+    
+    # Show local variables on failure
+    uv run pytest -l
+    ```
+  </Tab>
+  
+  <Tab title="Parallel Execution">
+    ```bash
+    # Install pytest-xdist
+    uv add --dev pytest-xdist
+    
+    # Run tests in parallel
+    uv run pytest -n auto
+    ```
+  </Tab>
+  
+  <Tab title="Stop on Failure">
+    ```bash
+    # Stop after first failure
+    uv run pytest -x
+    
+    # Stop after N failures
+    uv run pytest --maxfail=3
+    ```
+  </Tab>
+</Tabs>
+
+## Test Organization
+
+The test suite is organized by subsystem:
+
+```
+tests/
+├── test_gameplay.py       # Core gameplay mechanics
+├── test_perks.py          # Perk implementations and effects
+├── test_physics.py        # Movement, collision, projectiles
+├── test_replay.py         # Replay recording and verification
+├── test_parity.py         # Native parity verification
+├── test_weapons.py        # Weapon behavior and damage
+├── test_creatures.py      # Enemy AI and behavior
+├── test_formats.py        # Asset format parsing (PAQ, JAZ)
+└── conftest.py            # Shared fixtures
+```
+
+## Writing Tests
+
+### Test Structure
+
+```python
+import pytest
+from crimson.gameplay import WeaponSystem
+
+def test_weapon_damage_calculation():
+    """Test that weapon damage is calculated correctly."""
+    weapon = WeaponSystem.create_weapon("PLASMA_RIFLE")
+    damage = weapon.calculate_damage(distance=100.0)
+    assert damage == pytest.approx(75.0, rel=1e-6)
+```
+
+### Using Fixtures
+
+```python
+@pytest.fixture
+def game_state():
+    """Create a fresh game state for testing."""
+    from crimson.game import GameState
+    state = GameState.new_survival_game(seed=12345)
+    return state
+
+def test_spawn_creature(game_state):
+    """Test creature spawning logic."""
+    creature = game_state.spawn_creature("ZOMBIE")
+    assert creature.health > 0
+    assert creature.position is not None
+```
+
+### Snapshot Testing with Syrupy
+
+The project uses [syrupy](https://github.com/tophat/syrupy) for snapshot testing:
+
+```python
+def test_weapon_table_structure(snapshot):
+    """Verify weapon table structure doesn't change unexpectedly."""
+    from crimson.weapons import WEAPON_TABLE
+    assert WEAPON_TABLE == snapshot
+```
+
+Update snapshots when intentional changes occur:
+
+```bash
+uv run pytest --snapshot-update
+```
+
+### Mocking with pytest-mock
+
+```python
+def test_audio_playback(mocker):
+    """Test audio playback without actual sound."""
+    mock_play = mocker.patch("grim.audio.play_sound")
+    
+    from crimson.game import Game
+    game = Game()
+    game.play_weapon_sound("SHOTGUN")
+    
+    mock_play.assert_called_once_with("shotgun_fire.wav")
+```
+
+## Parity Testing
+
+<Warning>
+Parity tests verify that the rewrite matches the original binary's behavior. These are critical for gameplay accuracy.
+</Warning>
+
+### Deterministic Tests
+
+Tests that verify exact numeric behavior:
+
+```python
+def test_rng_sequence_determinism():
+    """Verify RNG produces identical sequences with same seed."""
+    from crimson.rng import RNG
+    
+    rng1 = RNG(seed=42)
+    rng2 = RNG(seed=42)
+    
+    seq1 = [rng1.next_u32() for _ in range(100)]
+    seq2 = [rng2.next_u32() for _ in range(100)]
+    
+    assert seq1 == seq2
+```
+
+### Float Comparison
+
+For float parity tests, use tight tolerances:
+
+```python
+import pytest
+
+def test_player_movement_parity():
+    """Test that player movement matches native float32 behavior."""
+    from crimson.player import Player
+    
+    player = Player(position=(100.0, 100.0))
+    player.move(dx=1.5, dy=2.3, dt=0.016666668)  # 60 FPS
+    
+    # Use relative tolerance appropriate for f32 precision
+    assert player.position[0] == pytest.approx(101.5, rel=1e-6)
+    assert player.position[1] == pytest.approx(102.3, rel=1e-6)
+```
+
+See [Float Parity Policy](/contributing/guidelines/float-parity) for detailed guidance.
+
+### Replay Verification Tests
+
+Tests that verify replay files produce expected outcomes:
+
+```python
+def test_replay_determinism():
+    """Test that replay produces identical results on multiple runs."""
+    from crimson.replay import ReplayPlayer
+    
+    replay = ReplayPlayer.load("fixtures/survival_seed_42.replay")
+    
+    result1 = replay.run_headless()
+    result2 = replay.run_headless()
+    
+    assert result1.score == result2.score
+    assert result1.final_wave == result2.final_wave
+    assert result1.rng_checksum == result2.rng_checksum
+```
+
+## Test Categories
+
+### Unit Tests
+
+Test individual functions and classes in isolation:
+
+```bash
+uv run pytest tests/test_weapons.py
+```
+
+### Integration Tests
+
+Test subsystems working together:
+
+```bash
+uv run pytest tests/test_gameplay.py
+```
+
+### Parity Tests
+
+Verify behavior matches original binary:
+
+```bash
+uv run pytest tests/test_parity.py -v
+```
+
+### Regression Tests
+
+Lock in discovered behaviors to prevent regressions:
+
+```bash
+uv run pytest -m regression
+```
+
+## Continuous Integration
+
+The pre-push hook runs the full test suite:
+
+```bash
+# Automatic via hook
+git push
+
+# Manual run
+prek run --stage pre-push
+
+# CI-equivalent local run
+just check && uv build
+```
+
+## Debugging Failed Tests
+
+### Drop into Debugger
+
+```bash
+# Drop into pdb on failure
+uv run pytest --pdb
+
+# Drop into pdb immediately
+uv run pytest --trace
+```
+
+### Isolate Failures
+
+```bash
+# Run only failed tests from last run
+uv run pytest --lf
+
+# Run failed tests first, then others
+uv run pytest --ff
+```
+
+### Verbose Logging
+
+```bash
+# Show captured log output
+uv run pytest --log-cli-level=DEBUG
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Test One Thing">
+    Each test should verify one specific behavior. If a test has multiple unrelated assertions, split it.
+  </Accordion>
+  
+  <Accordion title="Use Descriptive Names">
+    Test names should clearly describe what they verify:
+    - Good: `test_weapon_damage_decreases_with_distance`
+    - Bad: `test_weapon_1`
+  </Accordion>
+  
+  <Accordion title="Deterministic Tests Only">
+    Avoid tests that depend on timing, randomness (without seeds), or external state.
+  </Accordion>
+  
+  <Accordion title="Fast Tests">
+    Keep tests fast. Use mocks for I/O operations. Heavy integration tests should be marked.
+  </Accordion>
+  
+  <Accordion title="Document Parity Evidence">
+    When adding parity tests, document the source:
+    ```python
+    def test_zombie_speed_parity():
+        """Verify zombie speed matches native decompile.
+        
+        Evidence: analysis/ghidra/raw/crimsonland.exe_decompiled.c:12345
+        Native value: 2.5f
+        """
+        from crimson.creatures import ZOMBIE
+        assert ZOMBIE.speed == pytest.approx(2.5, rel=1e-6)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Verification Process" icon="check-double" href="/contributing/dev/verification">
+    Learn about the full verification workflow
+  </Card>
+  
+  <Card title="Parity Workflow" icon="equals" href="/contributing/dev/parity-workflow">
+    Understand parity-first development
+  </Card>
+  
+  <Card title="Code Style" icon="paintbrush" href="/contributing/guidelines/code-style">
+    Follow project coding standards
+  </Card>
+  
+  <Card title="Float Parity" icon="calculator" href="/contributing/guidelines/float-parity">
+    Master float32 precision requirements
+  </Card>
+</CardGroup>

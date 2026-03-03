@@ -1,0 +1,359 @@
+---
+title: RNG System
+description: Random number generation for spawns, drops, and game events
+icon: dice
+---
+
+# RNG System
+
+Crimsonland uses a deterministic random number generator for spawns, bonus drops, perk selection, and various game events. Understanding the RNG helps predict and manipulate game outcomes.
+
+## Random Number Generator
+
+From the source code references, Crimsonland uses a custom RNG implementation:
+
+**RNG Type**: `CrandLike` (C stdlib rand-compatible)
+
+**Implementation**: Located in `grim.rand` module
+
+**Characteristics**:
+- Deterministic: Same seed produces same sequence
+- Reproducible: Replays use same seed for parity
+- Fast: Optimized for frame-by-frame generation
+
+### Seed System
+
+**Seed Initialization**: Game start, mode selection, or manual seed input
+
+**Deterministic Replay**: Survival mode replays use recorded seed to reproduce exact gameplay
+
+**Seed Manipulation**: Advanced players can use known seeds for specific outcomes (speedruns, challenges)
+
+## RNG Applications
+
+### Creature Spawns
+
+**Spawn Template Selection**:
+```python
+# Pseudocode from spawn logic
+spawn_id = random_spawn_id_from_pool()
+tint = random_tint() if template.tint is None else template.tint
+size = random_size() if template.size is None else template.size
+speed = random_speed() if template.move_speed is None else template.move_speed
+```
+
+**Randomized Elements**:
+- Which spawn template (SpawnId)
+- Creature tint (RGBA)
+- Creature size (0.8x - 1.5x typical range)
+- Movement speed (0.8x - 1.3x typical range)
+- Heading direction (0 - 2π radians)
+- Spawn position (screen edge location)
+
+**Fixed Elements** (template-specific):
+- Creature type (Zombie, Lizard, etc.)
+- AI mode
+- Flags (split on death, ranged attack, etc.)
+
+**Spawn Timing**: Random variance added to spawn timer (prevents predictable waves)
+
+### Bonus Drops
+
+**Drop Chance Roll**:
+```python
+# Simplified bonus drop logic
+if random() < base_drop_rate:
+    bonus_id = weighted_random_bonus()
+    spawn_bonus(bonus_id)
+```
+
+**Weighted Selection**: Different bonuses have different spawn weights
+
+**Approximate Weights** (inferred from gameplay):
+
+| Bonus | Relative Weight | Rarity |
+|-------|----------------|--------|
+| Points | High | Common |
+| Weapon | High (with Pistol) | Common |
+| Fireblast | Medium | Common |
+| MediKit | Medium | Medium |
+| Shield | Low | Rare |
+| Nuke | Very Low | Very Rare |
+| Weapon Power Up | Low | Rare |
+| Double XP | Low | Rare |
+
+**Pistol Bias**: While holding Pistol:
+- Overall drop rate × 1.5
+- Weapon bonus forced 75% of the time
+
+**Bonus Magnet Perk**: Second roll on failed drop (effectively +30-40% drop rate)
+
+### Perk Selection
+
+**Selection Pool Generation**:
+
+```python
+# Pseudocode from perk selection
+available_perks = filter_perks_by_mode_and_prerequisites()
+shuffle(available_perks)  # RNG determines order
+offered_perks = available_perks[:selection_count]  # First 5 (or 7)
+```
+
+**RNG Determines**:
+- Which perks appear in selection
+- Order of perks displayed
+
+**NOT Randomized**:
+- Perk effects (fixed per perk)
+- Prerequisites (hard-coded)
+- Mode availability (flag-based)
+
+**Perk Expert/Master**: Increases selection_count (5 → 7) but doesn't change RNG
+
+### Combat RNG
+
+**Dodge Rolls** (Dodger/Ninja perks):
+```python
+if random() < dodge_chance:
+    avoid_damage()
+else:
+    apply_damage()
+```
+
+Dodger: 20% chance (random() < 0.2)
+
+Ninja: 33% chance (random() < 0.333...)
+
+**Poison Application** (Poison Bullets):
+```python
+if random() < 0.125:  # 1-in-8 chance
+    apply_poison()
+```
+
+**Jinxed Perk Events**:
+```python
+if random() < 0.1:
+    take_self_damage(5)
+if not freeze_active and random() < creature_death_chance:
+    kill_random_creature()
+```
+
+**Fatal Lottery**:
+```python
+if random() < 0.5:
+    award_xp(10000)
+else:
+    kill_player()
+```
+
+### Spread and Accuracy
+
+**Projectile Spread**:
+```python
+# Weapon spread affects heading
+spread_offset = random_gaussian() * current_spread_heat
+projectile_heading = aim_heading + spread_offset
+```
+
+**Spread Heat**: Increases per shot, decays over time
+
+**Sharpshooter**: Forces spread_heat to near-zero (RNG still called but clamped)
+
+**Random Gaussian**: Uses RNG to generate normal distribution for realistic spread
+
+### Visual Effects
+
+**Particle Systems**:
+- Particle velocity variance
+- Particle lifetime variance  
+- Particle rotation randomization
+- Color tint variation
+
+**Decal Placement**:
+- Blood splatter positioning
+- Decal rotation
+- Decal scale variance
+
+**Audio Variation**:
+- Attack sound selection (attack_01 vs attack_02)
+- Volume randomization
+- Pitch variation
+
+## RNG Manipulation
+
+### Seed Control
+
+**Known Seed Benefits**:
+- Reproducible runs (speedruns, verification)
+- Favorable spawn patterns
+- Perk selection guarantees
+- Bonus drop optimization
+
+**Seed Input**: Some game modes allow manual seed entry for challenges
+
+**Seed Recording**: Replays store seed for exact reproduction
+
+### Frame-Perfect Inputs
+
+**RNG Advancement**: Each frame advances RNG state
+
+**Input Timing**: Slightly delayed input (1-2 frames) can change RNG state before perk selection
+
+**Manipulation Strategy**:
+1. Know desired perk
+2. Delay level-up (kill enemies slower)
+3. RNG advances during delay
+4. Different RNG state = different perk pool
+5. Select perk when desired one appears
+
+**Difficulty**: Requires precise frame counting and knowledge of RNG sequence
+
+### Bonus Manipulation
+
+**Bonus Spawn Timing**:
+- Kill timing affects bonus rolls
+- Multiple simultaneous kills = multiple rolls
+- Spread kills over time for more attempts
+
+**Bonus Magnet**: Doubles attempts per kill, increases RNG roll count
+
+## Determinism and Replay
+
+### Replay System
+
+From `src/crimson/replay/` directory:
+
+**Replay Recording**:
+- Initial RNG seed
+- Player inputs (frame-by-frame)
+- Game mode and settings
+
+**Replay Playback**:
+- Restores exact RNG seed
+- Replays inputs identically
+- Reproduces exact game state
+
+**Parity**: Replays match original frame-perfectly (when working correctly)
+
+### Desyncs
+
+**Causes**:
+- Floating-point precision differences
+- Code changes between versions
+- Platform-specific RNG differences
+- Timer/frame rate variance
+
+**Prevention**: Crimsonland uses fixed-point math and deterministic RNG to minimize desyncs
+
+## RNG Patterns
+
+### Spawn Waves
+
+**Pattern Observation**: Early game spawns follow rough patterns:
+
+**Minutes 0-2**: Mostly Zombies and basic Lizards
+
+**Minutes 2-5**: Mix of Zombies, Lizards, Spiders
+
+**Minutes 5-10**: Aliens appear, tougher variants
+
+**Minutes 10+**: Boss variants, all types, high density
+
+**RNG Influence**: Exact timing and mix randomized, but general progression follows pattern
+
+### Bonus Clustering
+
+**Observed Behavior**: Bonuses sometimes cluster (3-4 in quick succession) or drought (long gaps)
+
+**RNG Explanation**: Random distribution creates natural clusters and gaps
+
+**Gambler's Fallacy**: Long drought doesn't increase next drop chance (each roll independent)
+
+**Actual Mechanics**: Bonus Magnet provides second roll, but base rate unchanged
+
+## Statistical Analysis
+
+### Expected Values
+
+**Dodger Perk** (20% dodge):
+```
+Expected hits to death at 100 HP, 10 damage/hit:
+Without Dodger: 10 hits
+With Dodger: 10 / 0.8 = 12.5 hits average
+```
+
+**Ninja Perk** (33% dodge):
+```
+Expected hits to death:
+10 / 0.67 = 14.9 hits average
+```
+
+**Poison Bullets** (12.5% chance):
+```
+Expected hits to poison:
+1 / 0.125 = 8 hits average
+```
+
+**Fatal Lottery** (50% death):
+```
+2 picks: 25% survival both times
+3 picks: 12.5% survival all times
+4 picks: 6.25% survival
+```
+
+### Variance
+
+**High Variance Events**:
+- Fatal Lottery (binary outcome)
+- Jinxed perk (random damage or benefit)
+- Bonus drops (long droughts possible)
+
+**Low Variance Events**:
+- Dodge rolls (frequent, averages out)
+- Poison application (frequent, averages out)
+- Spawn timing (minor variance)
+
+## RNG Trivia
+
+<Accordion title="Why Crimsonland uses deterministic RNG">
+Deterministic RNG enables:
+- Exact replay functionality
+- Fair speedrun verification  
+- Reproducible bug testing
+- Parity between original and rewrite
+
+True random would make replays impossible.
+</Accordion>
+
+<Accordion title="RNG call frequency">
+At 60 FPS, Crimsonland calls RNG approximately:
+- 10-20 times per frame (spawn checks, visual effects)
+- 600-1200 times per second
+- 36,000-72,000 times per minute
+
+Heavy usage requires fast RNG implementation.
+</Accordion>
+
+<Accordion title="Speedrun seed manipulation">
+Speedrunners can use favorable seeds to guarantee:
+- Early Plasma Rifle weapon drop
+- Fastshot + Fastloader + Bloody Mess in first 3 levels
+- No boss spawns in first 5 minutes
+
+But most categories ban manual seed input.
+</Accordion>
+
+## Related Documentation
+
+- [Perks](/mechanics/combat/perks) - RNG-based perk selection
+- [Bonuses](/mechanics/combat/bonuses) - Bonus drop RNG
+- [Creatures](/mechanics/combat/creatures) - Spawn template randomization
+- [Survival Mode](/mechanics/modes/survival) - Spawn patterns
+
+## Source Code References
+
+- `grim.rand` - RNG implementation
+- `src/crimson/replay/` - Replay system using deterministic RNG
+- `src/crimson/bonuses/selection.py` - Bonus drop RNG
+- `src/crimson/perks/selection.py` - Perk selection RNG
+- `src/crimson/creatures/spawn.py` - Spawn template randomization

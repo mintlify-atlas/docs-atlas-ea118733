@@ -1,0 +1,246 @@
+---
+title: replay play
+description: Play back a recorded replay with rendering
+---
+
+Play back a recorded `.crd` replay file with full game rendering and UI.
+
+## Usage
+
+```bash
+crimson replay play <replay_file> [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="replay_file" type="Path" required>
+  Replay file path (`.crd`).
+  
+  If a filename is provided without path, also searches `base-dir/replays/`
+</ParamField>
+
+## Options
+
+<ParamField path="--width" type="int">
+  Window width in pixels.
+  
+  Default: Use value from `crimson.cfg`
+</ParamField>
+
+<ParamField path="--height" type="int">
+  Window height in pixels.
+  
+  Default: Use value from `crimson.cfg`
+</ParamField>
+
+<ParamField path="--fps" type="int" default="60">
+  Target frame rate for rendering.
+</ParamField>
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files.
+  
+  Default: Per-user OS data directory
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+<ParamField path="--assets-dir" type="Path">
+  Assets root directory.
+  
+  Default: `base-dir`
+  
+  Missing .paq files are automatically downloaded.
+</ParamField>
+
+## Behavior
+
+### Playback Controls
+
+During playback:
+
+- **Space** — Pause/resume
+- **ESC** — Exit playback
+- **F12** — Screenshot
+- **← / →** — Rewind/fast-forward (if supported)
+
+### File Resolution
+
+If `replay_file` is just a filename, the command searches:
+
+1. Current directory: `./filename.crd`
+2. Replays directory: `base-dir/replays/filename.crd`
+
+This allows short filenames:
+
+```bash
+crimson replay play survival-run.crd
+# Searches ./survival-run.crd
+# Then ~/.local/share/crimsonland/replays/survival-run.crd
+```
+
+### Window Title
+
+The window title displays the replay filename:
+
+```
+Replay — survival-2024-03-15-123456.crd
+```
+
+## Examples
+
+### Play Replay from Replays Directory
+
+```bash
+crimson replay play survival-run.crd
+```
+
+### Play with Absolute Path
+
+```bash
+crimson replay play /path/to/custom/replay.crd
+```
+
+### Custom Window Size
+
+```bash
+crimson replay play run.crd --width 1920 --height 1080
+```
+
+### High Frame Rate
+
+```bash
+crimson replay play run.crd --fps 144
+```
+
+### Custom Assets
+
+```bash
+crimson replay play run.crd --assets-dir ./custom_assets
+```
+
+### Custom Runtime Directory
+
+```bash
+crimson replay play run.crd --base-dir ./artifacts/runtime
+```
+
+## Error Handling
+
+### File Not Found
+
+```bash
+crimson replay play nonexistent.crd
+```
+
+Output:
+```
+replay file not found: ./nonexistent.crd (also tried: /home/user/.local/share/crimsonland/replays/nonexistent.crd)
+```
+
+Exit code: `1`
+
+### Corrupted Replay
+
+```bash
+crimson replay play corrupted.crd
+```
+
+Output:
+```
+replay codec error: invalid msgspec structure
+```
+
+Exit code: `1`
+
+### Version Mismatch
+
+```bash
+crimson replay play old-version.crd
+```
+
+Output:
+```
+replay game version error: replay version 0.5.0 incompatible with current 0.7.0
+```
+
+Exit code: `1`
+
+## Deterministic Playback
+
+Replay playback is deterministic:
+
+- Same inputs produce identical simulation state
+- RNG sequence matches original recording
+- Frame-perfect event timing
+- Float32 math parity with original run
+
+The rendered output should match the original gameplay exactly.
+
+## Performance
+
+Playback performance depends on:
+
+- Window resolution
+- Target FPS
+- Hardware capabilities
+- Replay complexity (entity count, effects)
+
+For smooth playback, ensure:
+
+```bash
+crimson replay play run.crd --fps 60  # Match simulation tick rate
+```
+
+## Screenshots
+
+Press **F12** during playback to capture screenshots:
+
+```
+base-dir/screenshots/
+└── replay-2024-03-15-123456.png
+```
+
+Screenshots are saved to `base-dir/screenshots/`.
+
+## Asset Downloads
+
+Missing PAQ assets are automatically downloaded on first run:
+
+```bash
+crimson replay play run.crd
+# Downloads crimson.paq, music.paq, sounds.paq if missing
+```
+
+Progress is shown in console.
+
+## Multiplayer Replays
+
+Multiplayer replays (2-4 players) are supported:
+
+```bash
+crimson replay play coop-2p.crd
+```
+
+All player inputs are replayed simultaneously.
+
+## Configuration
+
+Window settings come from `crimson.cfg` unless overridden:
+
+```bash
+# Use config defaults
+crimson replay play run.crd
+
+# Override width/height
+crimson replay play run.crd --width 1920 --height 1080
+```
+
+## See Also
+
+- [replay verify](/cli/replay/verify) — Verify without rendering
+- [replay render](/cli/replay/render) — Export to video
+- [replay list](/cli/replay/list) — Browse replays
+- [Replay System](/cli/replay/overview) — Overview

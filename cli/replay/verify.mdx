@@ -1,0 +1,355 @@
+---
+title: replay verify
+description: Verify replay integrity and score claims
+---
+
+Run headless simulation of a replay and verify claimed statistics match actual results.
+
+## Usage
+
+```bash
+crimson replay verify <replay_file> [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="replay_file" type="Path" required>
+  Replay file path (`.crd`).
+  
+  If a filename is provided without path, also searches `base-dir/replays/`
+</ParamField>
+
+## Options
+
+<ParamField path="--max-ticks" type="int">
+  Stop after N ticks.
+  
+  Default: Full replay
+  
+  Useful for partial verification or debugging.
+</ParamField>
+
+<ParamField path="--trace-rng" type="flag">
+  Enable replay RNG trace mode during simulation.
+  
+  Records all RNG calls for debugging desync issues.
+</ParamField>
+
+<ParamField path="--format" type="human|json" default="human">
+  Output format.
+  
+  - `human` — Human-readable text
+  - `json` — Machine-readable JSON
+</ParamField>
+
+<ParamField path="--json-out" type="Path">
+  Optional JSON output path for verify result payload.
+</ParamField>
+
+<ParamField path="--base-dir" type="Path">
+  Base path for runtime files.
+  
+  Default: Per-user OS data directory
+</ParamField>
+
+<ParamField path="--runtime-dir" type="Path">
+  Alias for `--base-dir`.
+</ParamField>
+
+## Output Format
+
+### Human Format (default)
+
+```bash
+crimson replay verify run.crd
+```
+
+Output:
+```
+ok: ticks=36000 elapsed_ms=600000 score_xp=125000 kills=1200 most_used_weapon_id=5 shots_fired=8500 shots_hit=6200 rng_state=0x12345678; header_claim complete=True match=True mismatches=-
+```
+
+### JSON Format
+
+```bash
+crimson replay verify run.crd --format json
+```
+
+Output:
+```json
+{
+  "schema_version": 1,
+  "status": "ok",
+  "replay": "/path/to/run.crd",
+  "replay_sha256": "abc123...",
+  "run_result": {
+    "game_mode_id": 1,
+    "tick_rate": 60,
+    "ticks": 36000,
+    "elapsed_ms": 600000,
+    "score_xp": 125000,
+    "creature_kill_count": 1200,
+    "most_used_weapon_id": 5,
+    "shots_fired": 8500,
+    "shots_hit": 6200,
+    "rng_state": 305419896
+  },
+  "header_claim": {
+    "expected": {
+      "complete": true,
+      "ticks": 36000,
+      "elapsed_ms": 600000,
+      "score_xp": 125000,
+      "kills": 1200,
+      "most_used_weapon_id": 5,
+      "shots_fired": 8500,
+      "shots_hit": 6200
+    },
+    "simulated": {
+      "complete": true,
+      "ticks": 36000,
+      "elapsed_ms": 600000,
+      "score_xp": 125000,
+      "kills": 1200,
+      "most_used_weapon_id": 5,
+      "shots_fired": 8500,
+      "shots_hit": 6200
+    },
+    "match": true,
+    "mismatched_fields": []
+  },
+  "score_claim": null
+}
+```
+
+## Exit Codes
+
+- `0` — Success, all claims verified
+- `1` — Error (file not found, codec error, etc.)
+- `3` — Header stats mismatch (score/kills don't match)
+
+## Verification Process
+
+1. **Load Replay** — Parse `.crd` file and validate structure
+2. **Headless Simulation** — Run game logic without rendering
+3. **Compare Stats** — Match simulated results against claimed header values
+4. **Report** — Output verification result
+
+## Verified Fields
+
+When replay is complete (`--max-ticks` not used), verifies:
+
+<ParamField path="ticks" type="int">
+  Total simulation ticks.
+</ParamField>
+
+<ParamField path="elapsed_ms" type="int">
+  Game time in milliseconds.
+</ParamField>
+
+<ParamField path="score_xp" type="int">
+  Final score / experience points.
+</ParamField>
+
+<ParamField path="kills" type="int">
+  Total creature kills.
+</ParamField>
+
+<ParamField path="most_used_weapon_id" type="int">
+  Weapon with most shots fired.
+</ParamField>
+
+<ParamField path="shots_fired" type="int">
+  Total shots fired across all weapons.
+</ParamField>
+
+<ParamField path="shots_hit" type="int">
+  Total shots that hit enemies.
+</ParamField>
+
+## Examples
+
+### Basic Verification
+
+```bash
+crimson replay verify survival-run.crd
+```
+
+Output:
+```
+ok: ticks=36000 elapsed_ms=600000 score_xp=125000 kills=1200 ...
+```
+
+### Verify with JSON Output
+
+```bash
+crimson replay verify run.crd --format json --json-out result.json
+```
+
+### Partial Verification
+
+```bash
+# Verify first 10000 ticks only
+crimson replay verify run.crd --max-ticks 10000
+```
+
+Output:
+```
+ok: ticks=10000 elapsed_ms=166666 score_xp=42000 kills=400 ...
+```
+
+<Note>
+Partial verification skips header claim comparison.
+</Note>
+
+### Debug with RNG Tracing
+
+```bash
+crimson replay verify run.crd --trace-rng
+```
+
+Enables detailed RNG call logging for debugging desync issues.
+
+### Verify from Custom Directory
+
+```bash
+crimson replay verify /path/to/replay.crd
+```
+
+### Batch Verification
+
+```bash
+for f in replays/*.crd; do
+  echo "Verifying $f..."
+  crimson replay verify "$f" --format json --json-out "results/$(basename $f .crd).json"
+done
+```
+
+## Error Handling
+
+### File Not Found
+
+```bash
+crimson replay verify missing.crd
+```
+
+Output:
+```
+replay file not found: ./missing.crd
+```
+
+Exit code: `1`
+
+### Score Mismatch
+
+```bash
+crimson replay verify tampered.crd
+```
+
+Output:
+```
+header_stats_mismatch: ticks=36000 elapsed_ms=600000 score_xp=125000 kills=1200 ...; header_claim complete=True match=False mismatches=score_xp,kills
+```
+
+Exit code: `3`
+
+### Version Incompatibility
+
+```bash
+crimson replay verify old-version.crd
+```
+
+Output:
+```
+replay verification failed: replay version 0.5.0 incompatible with current 0.7.0
+```
+
+Exit code: `1`
+
+## Use Cases
+
+### Speedrun Verification
+
+Verify claimed times and scores:
+
+```bash
+crimson replay verify speedrun.crd --format json > proof.json
+```
+
+### Automated Testing
+
+```bash
+#!/bin/bash
+if crimson replay verify test.crd --format json; then
+  echo "Test passed"
+else
+  echo "Test failed"
+  exit 1
+fi
+```
+
+### CI/CD Integration
+
+```yaml
+# .github/workflows/verify-replays.yml
+- name: Verify regression replays
+  run: |
+    for replay in tests/replays/*.crd; do
+      crimson replay verify "$replay" --format json
+    done
+```
+
+### Leaderboard Validation
+
+Validate submitted replay before accepting:
+
+```python
+import subprocess
+import json
+
+result = subprocess.run(
+    ["crimson", "replay", "verify", "submission.crd", "--format", "json"],
+    capture_output=True,
+    text=True,
+)
+
+if result.returncode == 0:
+    data = json.loads(result.stdout)
+    score = data["run_result"]["score_xp"]
+    print(f"Valid submission: {score} points")
+else:
+    print("Invalid replay")
+```
+
+## Performance
+
+Headless verification is fast:
+
+- No rendering overhead
+- No asset loading
+- Pure simulation logic
+- Typical: 10-20x realtime speed
+
+Example: 10-minute replay verifies in ~30-60 seconds.
+
+## SHA256 Integrity
+
+The verification result includes replay file SHA256:
+
+```json
+{
+  "replay_sha256": "abc123..."
+}
+```
+
+This ensures:
+- Replay file hasn't been modified
+- Tamper detection
+- Cryptographic proof of authenticity
+
+## See Also
+
+- [replay play](/cli/replay/play) — Play with rendering
+- [replay benchmark](/cli/replay/benchmark) — Performance benchmarking
+- [replay verify-checkpoints](/cli/replay/verify) — Checkpoint verification
+- [Replay System](/cli/replay/overview) — Overview

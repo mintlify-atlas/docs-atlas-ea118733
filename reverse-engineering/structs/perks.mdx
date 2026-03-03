@@ -1,0 +1,254 @@
+---
+title: Perk Structures
+description: Perk metadata tables and per-player perk counts
+---
+
+This page documents perk-related data structures: the static perk metadata table and per-player perk acquisition counts.
+
+## Perk Metadata Table
+
+**Base**: `0x004d8000` (`perk_table`)  
+**Entry size**: `0x20` bytes (32 bytes)  
+**Count**: 128 perks (many unused)
+
+### Struct Layout
+
+```c
+typedef struct {
+    i32 name_offset;        // +0x00
+    i32 icon_index;         // +0x04
+    i32 rarity;             // +0x08
+    i32 flags;              // +0x0c
+    i32 max_count;          // +0x10
+    // ... 12 more bytes
+} perk_entry_t;  // 0x20 bytes
+```
+
+### Key Fields
+
+| Offset | Field | Type | Description |
+|--------|-------|------|-------------|
+| 0x00 | name_offset | i32 | Offset into string table |
+| 0x04 | icon_index | i32 | UI icon sprite index |
+| 0x08 | rarity | i32 | Drop weight (higher = rarer) |
+| 0x0c | flags | i32 | Behavior flags |
+| 0x10 | max_count | i32 | Stack limit (0 = no limit) |
+
+## Player Perk Counts
+
+**Base**: `player_health + 0x94` (within player struct)  
+**Type**: `i32[0x80]` (128 entries)  
+**Total size**: `0x200` bytes
+
+Each entry stores how many times the player has acquired that perk.
+
+**Access**:
+```c
+int perk_count = player_perk_counts[player_idx * 0x360 + 0x94 + perk_id * 4];
+```
+
+**Helper function**:
+```c
+int perk_count_get(int perk_id) {
+    return player_perk_counts[current_player][perk_id];
+}
+```
+
+## Perk ID Map
+
+### Offensive Perks
+
+| ID | Name | Effect |
+|----|------|--------|
+| 0x01 | Crimsonier | +15% bullet damage |
+| 0x02 | Nerves of Steel | +20% accuracy |
+| 0x03 | Ticker | +10% fire rate |
+| 0x04 | Fast Reloader | -50% reload time |
+| 0x05 | Long Distance Runner | +15% movement speed |
+| 0x32 | Angry Reloader | Plasma burst on reload |
+| 0x34 | Poison Bullets | Bullets poison enemies |
+| 0x35 | Fire Bullets | Converts shots to fire |
+
+### Defensive Perks
+
+| ID | Name | Effect |
+|----|------|--------|
+| 0x06 | Armored | +20% max health |
+| 0x07 | Tough Reloader | -50% damage while reloading |
+| 0x08 | Jinx | Enemies 20% slower |
+| 0x09 | Second Chance | Revive once with 50% health |
+| 0x0a | Shield | Temporary invulnerability |
+| 0x36 | Living Fortress | Armor while stationary |
+| 0x37 | Man Bomb | Periodic damage burst |
+
+### Utility Perks
+
+| ID | Name | Effect |
+|----|------|--------|
+| 0x0b | Haste | +15% all speeds |
+| 0x0c | Reflex Boost | +30% dodge chance |
+| 0x0d | Sharp Shooter | +25% headshot damage |
+| 0x0e | Floater | Move through enemies |
+| 0x0f | Fast Learner | +50% XP gain |
+| 0x38 | Hot Tempered | Damage on collision |
+| 0x39 | Plague Bearer | Infect nearby enemies |
+| 0x3a | Ion Gun Master | +20% ion damage |
+
+## Perk Rarities
+
+| Rarity | Weight | Drop Chance | Examples |
+|--------|--------|-------------|----------|
+| 1 | Common | 40% | Crimsonier, Fast Reloader |
+| 2 | Uncommon | 30% | Nerves of Steel, Armored |
+| 3 | Rare | 20% | Second Chance, Jinx |
+| 4 | Very Rare | 8% | Angry Reloader, Ion Gun Master |
+| 5 | Legendary | 2% | Man Bomb, Plague Bearer |
+
+**Drop logic**:
+```c
+void spawn_perk_choice() {
+    int total_weight = 0;
+    for (int i = 0; i < perk_count; i++) {
+        total_weight += perk_table[i].rarity;
+    }
+    
+    int roll = rand() % total_weight;
+    // Select perk based on weighted roll
+}
+```
+
+## Perk Application
+
+Perks are applied in `perk_apply_effect` when acquired:
+
+```c
+void perk_apply_effect(int player_idx, int perk_id) {
+    player_perk_counts[player_idx][perk_id]++;
+    
+    switch (perk_id) {
+        case 0x01:  // Crimsonier
+            player_damage_multiplier[player_idx] *= 1.15;
+            break;
+        
+        case 0x04:  // Fast Reloader
+            player_reload_multiplier[player_idx] *= 0.5;
+            break;
+        
+        case 0x32:  // Angry Reloader (passive)
+            // Checked in reload_complete()
+            break;
+        
+        // ...
+    }
+}
+```
+
+## Runtime Checks
+
+Many perks are checked during gameplay:
+
+### Damage Calculation
+
+```c
+float calculate_damage(int player_idx, float base_damage) {
+    float damage = base_damage;
+    
+    // Crimsonier stacks
+    int crimsonier_count = perk_count_get(0x01);
+    damage *= pow(1.15, crimsonier_count);
+    
+    // Poison Bullets
+    if (perk_count_get(0x34) > 0) {
+        apply_poison_to_target();
+    }
+    
+    return damage;
+}
+```
+
+### Reload Handling
+
+```c
+void start_reload(int player_idx) {
+    float reload_time = weapon_reload_time[player_idx];
+    
+    // Fast Reloader
+    int fast_reload_count = perk_count_get(0x04);
+    reload_time *= pow(0.5, fast_reload_count);
+    
+    player_reload_timer[player_idx] = reload_time;
+    player_reload_active[player_idx] = 1;
+}
+
+void reload_complete(int player_idx) {
+    player_reload_active[player_idx] = 0;
+    player_ammo[player_idx] = player_clip_size[player_idx];
+    
+    // Angry Reloader burst
+    if (perk_count_get(0x32) > 0) {
+        spawn_plasma_burst(player_pos_x[player_idx], player_pos_y[player_idx]);
+    }
+}
+```
+
+### Movement Update
+
+```c
+void player_update_movement(int player_idx) {
+    float speed = player_move_speed[player_idx];
+    
+    // Long Distance Runner
+    int runner_count = perk_count_get(0x05);
+    speed *= pow(1.15, runner_count);
+    
+    // Haste
+    if (perk_count_get(0x0b) > 0) {
+        speed *= 1.15;
+    }
+    
+    player_pos_x[player_idx] += vel_x * speed * delta_time;
+    player_pos_y[player_idx] += vel_y * speed * delta_time;
+}
+```
+
+## Perk Stacking
+
+**Multiplicative** (most damage/speed perks):
+```c
+final_value = base * pow(multiplier, count)
+```
+
+**Additive** (some utility perks):
+```c
+final_value = base + (bonus * count)
+```
+
+**Boolean** (on/off perks):
+```c
+if (perk_count_get(perk_id) > 0) {
+    apply_effect();
+}
+```
+
+## Max Counts
+
+| Perk | Max Count | Notes |
+|------|-----------|-------|
+| Most perks | 0 | No limit (can stack infinitely) |
+| Second Chance | 1 | One-time revive |
+| Shield | 1 | Duration-based, doesn't stack |
+| Man Bomb | 3 | Capped at 3 |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Game State" href="/reverse-engineering/structs/game-state">
+    Perk drop RNG and spawn logic
+  </Card>
+  <Card title="Weapon Structures" href="/reverse-engineering/structs/weapons">
+    Weapon-modifying perks
+  </Card>
+  <Card title="Perk Mechanics" href="/mechanics/perks">
+    High-level perk behavior documentation
+  </Card>
+</CardGroup>

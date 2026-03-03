@@ -1,0 +1,245 @@
+{
+  "projectType": "general",
+  "projectName": "Crimsonland",
+  "projectDescription": "A faithful reimplementation of Crimsonland (2003) with deterministic gameplay, extensive reverse engineering documentation, and parity verification.",
+  "theme": "aspen",
+  "primaryColor": "#DC143C",
+  "lightColor": "#FF6B6B",
+  "darkColor": "#8B0000",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Get Started",
+        "groups": [
+          {
+            "group": "Introduction",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Installation",
+            "pages": [
+              "installation/requirements",
+              "installation/from-pypi",
+              "installation/from-source",
+              "installation/runtime-configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Game Mechanics",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "mechanics/overview"
+            ]
+          },
+          {
+            "group": "Game Modes",
+            "pages": [
+              "mechanics/modes/survival",
+              "mechanics/modes/quest",
+              "mechanics/modes/rush",
+              "mechanics/modes/tutorial",
+              "mechanics/modes/typ-o-shooter"
+            ]
+          },
+          {
+            "group": "Combat System",
+            "pages": [
+              "mechanics/combat/weapons",
+              "mechanics/combat/perks",
+              "mechanics/combat/creatures",
+              "mechanics/combat/bonuses",
+              "mechanics/combat/damage"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "mechanics/advanced/secret-weapons",
+              "mechanics/advanced/perk-interactions",
+              "mechanics/advanced/rng"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Rewrite",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "rewrite/overview",
+              "rewrite/architecture/module-map",
+              "rewrite/architecture/game-loop",
+              "rewrite/architecture/deterministic-pipeline"
+            ]
+          },
+          {
+            "group": "Core Systems",
+            "pages": [
+              "rewrite/systems/gameplay",
+              "rewrite/systems/rendering",
+              "rewrite/systems/audio",
+              "rewrite/systems/input"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "rewrite/modules/crimson",
+              "rewrite/modules/grim",
+              "rewrite/modules/replay",
+              "rewrite/modules/perks"
+            ]
+          },
+          {
+            "group": "Parity",
+            "pages": [
+              "rewrite/parity/status",
+              "rewrite/parity/float-policy",
+              "rewrite/parity/original-bugs"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reverse Engineering",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "reverse-engineering/overview",
+              "reverse-engineering/methodology"
+            ]
+          },
+          {
+            "group": "Static Analysis",
+            "pages": [
+              "reverse-engineering/static/ghidra-workflow",
+              "reverse-engineering/static/decompilation",
+              "reverse-engineering/static/struct-recovery"
+            ]
+          },
+          {
+            "group": "Runtime Analysis",
+            "pages": [
+              "reverse-engineering/runtime/frida-capture",
+              "reverse-engineering/runtime/windbg-debugging",
+              "reverse-engineering/runtime/differential-testing"
+            ]
+          },
+          {
+            "group": "File Formats",
+            "pages": [
+              "reverse-engineering/formats/paq-archives",
+              "reverse-engineering/formats/jaz-textures",
+              "reverse-engineering/formats/config-files",
+              "reverse-engineering/formats/save-files"
+            ]
+          },
+          {
+            "group": "Data Structures",
+            "pages": [
+              "reverse-engineering/structs/game-state",
+              "reverse-engineering/structs/entities",
+              "reverse-engineering/structs/weapons",
+              "reverse-engineering/structs/perks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/overview",
+              "cli/run",
+              "cli/extract",
+              "cli/config"
+            ]
+          },
+          {
+            "group": "Replay System",
+            "pages": [
+              "cli/replay/overview",
+              "cli/replay/list",
+              "cli/replay/play",
+              "cli/replay/verify",
+              "cli/replay/render",
+              "cli/replay/benchmark"
+            ]
+          },
+          {
+            "group": "Debug Views",
+            "pages": [
+              "cli/debug/view",
+              "cli/debug/quests"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Contributing",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "contributing/overview",
+              "contributing/setup",
+              "contributing/workflow"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "contributing/dev/testing",
+              "contributing/dev/verification",
+              "contributing/dev/parity-workflow",
+              "contributing/dev/tooling"
+            ]
+          },
+          {
+            "group": "Guidelines",
+            "pages": [
+              "contributing/guidelines/code-style",
+              "contributing/guidelines/float-parity",
+              "contributing/guidelines/commits"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Deterministic gameplay simulation with seeded runs and replay verification",
+    "Full implementation of all 5 game modes: Survival, Quest, Rush, Tutorial, and Typ-o-Shooter",
+    "Complete weapon and perk system with 58 perks and behavioral parity to original",
+    "PAQ archive and JAZ texture extraction with custom format decoders",
+    "Headless replay system with differential testing against original binary",
+    "Extensive reverse engineering documentation with Ghidra, Frida, and WinDbg evidence",
+    "Float32 precision-aware implementation matching original math behavior",
+    "High-quality video rendering from replay files at 60fps"
+  ],
+  "publicApiSurface": [
+    "crimson CLI - Main game executable",
+    "crimson view - Debug views and sandboxes",
+    "crimson extract - PAQ archive extraction",
+    "crimson config - Configuration inspection",
+    "crimson replay list/play/verify/benchmark/render - Replay management",
+    "crimson.gameplay - Core game logic module",
+    "crimson.weapons - Weapon system",
+    "crimson.perks - Perk implementation and runtime",
+    "crimson.replay - Replay recording and playback",
+    "grim.paq - PAQ archive format decoder",
+    "grim.jaz - JAZ texture format decoder",
+    "grim.rand - Deterministic RNG system"
+  ]
+}
